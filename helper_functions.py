@@ -1,0 +1,65 @@
+import random
+import datetime
+
+def get_random_emoji():
+                # Unicode ranges for emojis
+                emoji_ranges = [
+                    (0x1F600, 0x1F64F),  # Emoticons
+                    (0x1F300, 0x1F5FF),  # Misc Symbols and Pictographs
+                    (0x1F680, 0x1F6FF),  # Transport and Map Symbols
+                    (0x1F700, 0x1F77F),  # Alchemical Symbols
+                    (0x1F780, 0x1F7FF),  # Geometric Shapes Extended
+                    (0x1F800, 0x1F8FF),  # Supplemental Arrows-C
+                    (0x1F900, 0x1F9FF),  # Supplemental Symbols and Pictographs
+                    (0x1FA00, 0x1FA6F),  # Chess Symbols
+                    (0x1FA70, 0x1FAFF),  # Symbols and Pictographs Extended-A
+                    (0x2600, 0x26FF),    # Miscellaneous Symbols
+                    (0x2700, 0x27BF),    # Dingbats
+                    (0xFE00, 0xFE0F),    # Variation Selectors
+                    (0x1F1E6, 0x1F1FF),  # Regional Indicator Symbols
+                ]
+                # Flatten all codepoints in the ranges
+                all_emojis = []
+                for start, end in emoji_ranges:
+                    all_emojis.extend(range(start, end + 1))
+                # Pick a random codepoint and convert to character
+                codepoint = random.choice(all_emojis)
+                try:
+                    emoji = chr(codepoint)
+                except ValueError:
+                    emoji = ""
+                return emoji
+
+
+
+def sort_key(split):
+        val = split.get('fractional', '').lower()
+        if "rounded up to nearest whole share" in val:
+            return 0
+        if "rounded up if fractional shares exceed a certain threshold" in val:
+            return 1
+        if "cash payment for fractional shares" in val or "rounded down to nearest whole share" in val:
+            return 2
+        if "not specified" in val:
+            return 4
+        return 3  # Other
+
+def next_market_day(date=None, previous=False, days=1):
+    """
+    Returns the next (or previous) market day from the given date.
+    Market days are Monday to Friday (excluding weekends).
+    :param date: datetime.date object. If None, uses today.
+    :param past: If True, goes to previous market days.
+    :param days: Number of market days to move forward/backward.
+    :return: datetime.date object of the target market day.
+    """
+    if date is None:
+        date = datetime.date.today()
+    delta = -1 if previous else 1
+    count = 0
+    current = date
+    while count < days:
+        current += datetime.timedelta(days=delta)
+        if current.weekday() < 5:  # Monday=0, Friday=4
+            count += 1
+    return current

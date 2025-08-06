@@ -1,0 +1,250 @@
+# Stock Split Checker
+
+A Python application that monitors upcoming reverse stock splits from multiple financial data sources and automatically sends notifications via email or SMS. The application helps identify stocks that round up fractional shares during reverse splits, which can be profitable for investors holding small positions.
+
+## Features
+
+- **Multi-Source Data Aggregation**: Scrapes stock split data from:
+  - Yahoo Finance (primary source)
+  - HedgeFollow.com (primary source)
+  - Nasdaq.com (optional) (currently unavailable)
+  - SEC Edgar filings (optional) (currently unavailable)
+  - StockTitan.net (optional) (currently unavailable)
+
+- **AI-Powered Analysis**: Uses Google Gemini API to automatically research and categorize how companies handle fractional shares during reverse splits
+
+- **Smart Categorization**: Organizes reverse splits into three categories:
+  - **Buy 1 Share**: Companies that round up any fractional shares to whole shares
+  - **Buy ? Shares**: Companies that round up only if fractional shares exceed a threshold
+  - **Check Rounding**: Companies with unspecified or other fractional share handling
+
+- **Flexible Notifications**: Sends notifications via:
+  - Email (Gmail SMTP)
+  - SMS (via email-to-SMS gateways) (Currently messages are limited in size and will generally be cut off thus losing valuable info)(Use Email)
+
+- **Automated Scheduling**: Can be configured to run daily checks
+
+## Requirements
+
+- Python 3.7+
+- Chrome/Chromium browser (for Selenium web scraping)
+- Gmail account with App Password enabled
+- Google Gemini API key (for AI analysis)
+- Email for sending and receiving results
+
+## Installation
+
+1. **Clone or download the project**:
+   ```bash
+   git clone <repository-url>
+   cd stock_split_checker
+   ```
+
+2. **Create a virtual environment** (recommended):
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install required packages**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Install Chrome WebDriver** (automatic via webdriver-manager):
+   The application will automatically download and manage the Chrome WebDriver when first run.
+
+## Configuration
+
+Create a `.env` file in the project root directory with the following variables:
+
+### Required Variables
+
+```env
+# Gmail Configuration (Required for notifications)
+SENDER_EMAIL=your-gmail@gmail.com
+GMAIL_KEY=your-app-password
+
+# Google Gemini API (Required for AI analysis of fractional share handling)
+GEMINI_API_KEY=your-gemini-api-key
+
+# Phone Number (Optional, for SMS notifications)
+PHONE_NUMBER=1234567890
+```
+
+### Optional Variables
+
+```env
+
+# Additional Email Recipients (if different from sender)(not yet implemented will only use sender)
+RECIPIENT_EMAIL=recipient@example.com
+```
+
+## Setting Up Gmail App Password
+
+1. **Enable 2-Factor Authentication** on your Gmail account
+2. Go to your [Google Account settings](https://myaccount.google.com/)
+3. Navigate to **Security** → **2-Step Verification** → **App passwords**
+4. Generate a new app password for "Mail"
+5. Use this 16-character password as your `GMAIL_KEY` in the `.env` file
+
+**Important**: Do not use your regular Gmail password. You must use an App Password.
+
+## Setting Up Google Gemini API (Optional)
+
+The Gemini API is used to automatically research how companies handle fractional shares during reverse splits. This feature is optional but highly recommended for accurate categorization.
+
+1. Go to [Google AI Studio](https://aistudio.google.com/)
+2. Create a new API key
+3. Ensure your API key has access to the Google Search grounding tool (usually automatic)
+4. Add the API key to your `.env` file as `GEMINI_API_KEY`
+
+**Note**: Without the Gemini API, all splits will be categorized as "Check Rounding" and you'll need to research fractional share handling manually.
+
+## Usage
+
+### Run Once (Testing)
+
+```bash
+python reverse_split_checker.py
+```
+
+### Enable Scheduled Daily Runs
+
+Uncomment the scheduling code at the bottom of `reverse_split_checker.py`:
+
+```python
+if __name__ == "__main__":
+    # Run once immediately for testing
+    # main()
+    
+    # Schedule daily execution
+    schedule_task()
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # Check every minute
+```
+
+### Test Individual Components
+
+Test specific scrapers:
+```bash
+python test_yahoo_finance.py
+python test_hedge_follow.py
+python test_nasdaq_scraper.py #(nasdaq doesn't work currently)
+```
+
+## File Structure
+
+```
+stock_split_checker/
+├── reverse_split_checker.py     # Main application entry point
+├── requirements.txt             # Python dependencies
+├── .env                        # Environment variables (create this)
+├── README.md                   # This file
+├── send_txt_msg.py            # Email/SMS notification handler
+├── check_roundup.py           # Gemini AI analysis for fractional shares
+├── table_scrapers.py          # Selenium-based web scrapers
+├── site_scrapers.py           # Additional web scrapers
+├── helper_functions.py        # Utility functions
+├── test_*.py                  # Individual scraper test scripts
+├── stock_split_checker.log    # Application log file
+└── logs/                      # Debug logs and screenshots
+```
+
+## How It Works
+
+1. **Data Collection**: The application scrapes upcoming stock split data from multiple financial websites using Selenium WebDriver
+
+2. **Filtering**: Only reverse stock splits are kept (where the ratio results in fewer shares)
+
+3. **Deduplication**: Removes duplicate entries based on stock symbol and effective date
+
+4. **AI Analysis**: If Gemini API is configured, the application researches each company's fractional share handling policy
+
+5. **Categorization**: Splits are organized into actionable categories:
+   - **Buy 1 Share**: Guaranteed to round up any fractional shares
+   - **Buy ? Shares**: May round up depending on threshold
+   - **Check Rounding**: Requires manual research
+
+6. **Notification**: Sends formatted email/SMS with the categorized results
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No module named" errors**: Ensure all requirements are installed with `pip install -r requirements.txt`
+
+2. **Chrome/ChromeDriver issues**: The application automatically manages ChromeDriver. If you encounter issues, ensure Chrome browser is installed and up to date.
+
+3. **Email authentication errors**: 
+   - Verify you're using an App Password, not your regular Gmail password
+   - Ensure 2-Factor Authentication is enabled on your Gmail account
+   - Check that `SENDER_EMAIL` and `GMAIL_KEY` are correct in your `.env` file
+
+4. **No splits found**: This is normal when there are no upcoming reverse splits. The application will send a notification stating "No upcoming reverse stock splits found."
+
+5. **Gemini API errors**: 
+   - Verify your API key is correct
+   - Ensure your API key has access to the Google Search grounding tool
+   - Check your API usage limits
+
+### Debug Information
+
+- Application logs are written to `stock_split_checker.log`
+- Selenium debug screenshots and HTML are saved to the `logs/` directory (maybe?)
+- Run individual test scripts to debug specific scrapers
+
+### Rate Limiting
+
+The application includes built-in rate limiting and delays to avoid overwhelming target websites. If you encounter blocking:
+
+- Increase delays in the scraper code
+- Consider running less frequently
+- Check if target websites have changed their structure
+
+## Customization
+
+### Adding New Data Sources
+
+To add new stock split data sources:
+
+1. Create a new scraper function in `site_scrapers.py` or `table_scrapers.py`
+2. Add the scraper to the `get_reverse_splits()` function in `reverse_split_checker.py`
+3. Ensure the scraper returns data in the expected format:
+
+```python
+{
+    'symbol': 'STOCK',
+    'company': 'Company Name',
+    'ratio': '1-for-10',
+    'effective_date': '2025-08-15',
+    'fractional': 'Not specified',
+    'is_reverse': True,
+    'source': 'Source Name'
+}
+```
+
+### Modifying Notification Format
+
+Edit the `send_message()` function in `reverse_split_checker.py` to customize the notification format.
+
+### Changing Carriers for SMS
+
+Modify the `CARRIER_MAP` in `send_txt_msg.py` to add support for additional mobile carriers.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
+
+## License
+
+This project is for educational and personal use. Please respect the terms of service of the websites being scraped and use appropriate rate limiting.
+
+## Disclaimer
+
+This application is for informational purposes only and should not be considered financial advice. Always perform your own research before making investment decisions. The accuracy of data depends on the reliability of the source websites and may not always be current or complete.

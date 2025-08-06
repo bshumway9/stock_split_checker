@@ -1,0 +1,10 @@
+requests
+beautifulsoup4
+schedule
+python-dotenv
+yfinance
+selenium
+webdriver-manager
+google-ai-generativelanguage>=0.6.0
+google-genai
+aiosmtplib
