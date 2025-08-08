@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  stock-split-checker:
+    build: .
+    container_name: stock-split-checker
+    restart: unless-stopped
+    volumes:
+      # Mount .env file (create this file with your credentials)
+      - ./.env:/app/.env
+      # Mount logs directory to persist logs
+      - ./logs:/app/logs
+      # Mount stock split checker log file
+      - ./stock_split_checker.log:/app/stock_split_checker.log
+    environment:
+      - TZ=America/New_York  # Set timezone for cron jobs
+    # Optional: if you want to access the container
+    # ports:
+    #   - "8080:8080"

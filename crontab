@@ -1,0 +1,4 @@
+# Run stock split checker every weekday at 8:00 AM EST
+0 8 * * 1-5 cd /app && /usr/local/bin/python reverse_split_checker.py >> /var/log/cron.log 2>&1
+
+# Empty line required at end of crontab file

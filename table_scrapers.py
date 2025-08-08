@@ -332,6 +332,7 @@ def scrape_hedge_follow():
     Returns a list of dictionaries containing split information.
     """
     splits = []
+    past_splits = []
     driver = None
     
     try:
@@ -367,7 +368,7 @@ def scrape_hedge_follow():
                 cells = row.find_elements(By.TAG_NAME, "td")
                 if len(cells) < 4:  # Ensure we have enough cells
                     continue
-                
+                past_split = False
                 # Extract data from cells
                 company = cells[2].text.strip()
                 market = cells[1].text.strip()
@@ -376,7 +377,7 @@ def scrape_hedge_follow():
                 ratio = cells[3].text.strip()
                 
                 # Skip if essential data is missing
-                if not symbol or not date_text or not ratio:
+                if not symbol or not date_text or not ratio or market.lower() == "otc":
                     continue
                 
                 # Parse date (format is YYYY-MM-DD)
@@ -387,8 +388,9 @@ def scrape_hedge_follow():
                     
                     # Skip past splits
                     if split_date < next_day:
+                        past_split = True
                         # logging.info(f"Skipping past split: {symbol} on {effective_date}")
-                        continue
+                        # continue
                         
                 except ValueError as e:
                     logging.warning(f"Could not parse HedgeFollow date '{date_text}': {e}")
@@ -414,8 +416,10 @@ def scrape_hedge_follow():
                     'fractional': 'Not specified',
                     'is_reverse': is_reverse
                 }
-                
-                splits.append(split_info)
+                if past_split:
+                    past_splits.append(split_info)
+                else:
+                    splits.append(split_info)
                 logging.info(f"Found HedgeFollow split: {symbol} - {ratio} on {effective_date}")
                 
             except Exception as e:
@@ -436,11 +440,212 @@ def scrape_hedge_follow():
             except Exception as e:
                 logging.error(f"Error closing WebDriver: {e}")
     
+    return splits, past_splits
+
+
+
+
+
+
+def scrape_stock_titan():
+    """
+    Scrape upcoming stock splits from StockTitan.net using Selenium.
+    Returns a list of dictionaries containing split information from non-OTC stocks.
+    """
+    splits = []
+    driver = None
+    
+    try:
+        # Set up Chrome options for headless browsing
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--window-size=1920,1080")
+        
+        # Initialize the Chrome WebDriver
+        logging.info("Initializing Chrome WebDriver for StockTitan scraping")
+        driver = webdriver.Chrome(options=chrome_options)
+        
+        # Navigate to StockTitan stock splits page
+        url = "https://stocktitan.net/news/stock-splits.html"
+        logging.info(f"Navigating to {url}")
+        driver.get(url)
+        
+        # Give the page a moment to load JavaScript content
+        time.sleep(3)
+        
+        # Log the page title for debugging
+        logging.info(f"Page title: {driver.title}")
+        
+        # Wait for the live news feed to be present
+        wait = WebDriverWait(driver, 15)
+        
+        try:
+            # Find the live news feed container
+            news_feed = wait.until(EC.presence_of_element_located((By.ID, "live-news-feed")))
+            logging.info("StockTitan live news feed found")
+            
+            # Get all news rows from the feed
+            news_rows = news_feed.find_elements(By.CSS_SELECTOR, "div.news-row[data-news-id]")
+            logging.info(f"Found {len(news_rows)} news articles in StockTitan feed")
+            
+            # Get today's date for filtering
+            prev_week = next_market_day(datetime.now().date(), previous=True, days=5)
+
+            # Process each news row
+            for row in news_rows:
+                try:
+                    # Check if this article is about stock splits by looking for stock split tag
+                    tags = row.find_elements(By.CSS_SELECTOR, "span.badge.tag a")
+                    is_split_article = any("stock split" in tag.text.lower() for tag in tags)
+                    
+                    if not is_split_article:
+                        continue
+                    
+                    # Extract the ticker information (only process the first ticker)
+                    ticker_elements = row.find_elements(By.CSS_SELECTOR, "div[name='tickers'] span.feed-ticker")
+                    if not ticker_elements:
+                        continue
+                    
+                    # Only process the first ticker in the article
+                    ticker_element = ticker_elements[0]
+                    try:
+                        # Extract symbol and exchange
+                        symbol_link = ticker_element.find_element(By.CSS_SELECTOR, "a.symbol-link")
+                        symbol = symbol_link.text.strip()
+                        
+                        # Get the exchange text (appears after the colon)
+                        ticker_text = ticker_element.text.strip()
+                        if ":" in ticker_text:
+                            exchange = ticker_text.split(":")[-1].strip()
+                        else:
+                            exchange = "Unknown"
+                        
+                        # Skip OTC stocks as requested
+                        if exchange.upper() == "OTC":
+                            logging.info(f"Skipping OTC stock: {symbol}")
+                            continue
+                        
+                        # Extract the title
+                        title_element = row.find_element(By.CSS_SELECTOR, "div[name='title'] a.feed-link")
+                        title = title_element.text.strip()
+                        
+                        # Extract the date
+                        date_element = row.find_element(By.CSS_SELECTOR, "time.news-row-datetime span.date")
+                        date_text = date_element.text.strip()
+                        
+                        # Parse date (format is MM/DD/YYYY)
+                        try:
+                            date_obj = datetime.strptime(date_text, '%m/%d/%Y')
+                            effective_date = date_obj.strftime('%Y-%m-%d')
+                            split_date = date_obj.date()
+                            
+                            # Skip past splits
+                            if split_date < prev_week:
+                                logging.info(f"Skipping past StockTitan split: {symbol} on {effective_date}")
+                                continue
+                                
+                        except ValueError as e:
+                            logging.warning(f"Could not parse StockTitan date '{date_text}': {e}")
+                            # Use current date as fallback
+                            effective_date = datetime.now().strftime('%Y-%m-%d')
+                        
+                        # Determine split type and ratio from title
+                        is_reverse = False
+                        ratio = "Not specified"
+                        
+                        title_lower = title.lower()
+                        
+                        # Look for reverse split indicators
+                        if "reverse" in title_lower:
+                            is_reverse = True
+                            
+                            # Try to extract ratio from common patterns
+                            import re
+                            # Pattern like "1-for-10", "1:10", "1 for 10"
+                            ratio_patterns = [
+                                r'(\d+)[-\s]*for[-\s]*(\d+)',
+                                r'(\d+):(\d+)',
+                                r'(\d+)[-\s]*to[-\s]*(\d+)'
+                            ]
+                            
+                            for pattern in ratio_patterns:
+                                match = re.search(pattern, title_lower)
+                                if match:
+                                    left = match.group(1)
+                                    right = match.group(2)
+                                    ratio = f"{left}:{right}"
+                                    break
+                        
+                        # Look for forward split indicators
+                        elif any(keyword in title_lower for keyword in ["stock split", "share split"]) and "reverse" not in title_lower:
+                            # Try to extract forward split ratio
+                            import re
+                            # Pattern like "3-for-2", "4-for-1"
+                            ratio_patterns = [
+                                r'(\d+)[-\s]*for[-\s]*(\d+)',
+                                r'(\d+):(\d+)',
+                                r'(\d+)[-\s]*to[-\s]*(\d+)'
+                            ]
+                            
+                            for pattern in ratio_patterns:
+                                match = re.search(pattern, title_lower)
+                                if match:
+                                    left = int(match.group(1))
+                                    right = int(match.group(2))
+                                    # If left > right, it's a forward split
+                                    if left > right:
+                                        ratio = f"{left}:{right}"
+                                    # If right > left, it might be expressed backwards
+                                    else:
+                                        ratio = f"{right}:{left}"
+                                        is_reverse = True
+                                    break
+                        
+                        
+                        split_info = {
+                            'symbol': symbol,
+                            'ratio': ratio,
+                            'effective_date': effective_date,
+                            'fractional': 'Not specified',
+                            'is_reverse': is_reverse,
+                            'source': 'StockTitan',
+                            'exchange': exchange,
+                            'title': title
+                        }
+                        
+                        splits.append(split_info)
+                        logging.info(f"Found StockTitan split: {symbol} ({exchange}) - {ratio} on {effective_date}")
+                        
+                    except Exception as e:
+                        logging.error(f"Error processing StockTitan ticker in row: {e}")
+                        continue
+                        
+                except Exception as e:
+                    logging.error(f"Error processing StockTitan news row: {e}")
+                    continue
+            
+            logging.info(f"Successfully scraped {len(splits)} splits from StockTitan")
+            
+        except TimeoutException:
+            logging.warning("Could not find StockTitan live news feed")
+            return splits
+            
+    except Exception as e:
+        logging.error(f"Error scraping StockTitan: {e}")
+    
+    finally:
+        # Always close the WebDriver to free resources
+        if driver:
+            try:
+                driver.quit()
+                logging.info("StockTitan WebDriver closed successfully")
+            except Exception as e:
+                logging.error(f"Error closing StockTitan WebDriver: {e}")
+    
     return splits
-
-
-
-
 
 
 def scrape_nasdaq():
