@@ -33,7 +33,7 @@ def test_discord_messaging():
         {
             'symbol': 'TEST1',
             'company': 'Test Company 1',
-            'ratio': '1:10',
+            'ratio': '10->1',
             'effective_date': '2025-08-08',
             'fractional': 'rounded up to nearest whole share',
             'is_reverse': True,
@@ -43,7 +43,7 @@ def test_discord_messaging():
         {
             'symbol': 'TEST2', 
             'company': 'Test Company 2',
-            'ratio': '1:20',
+            'ratio': '20->1',
             'effective_date': '2025-08-09',
             'fractional': 'rounded up if fractional shares exceed a certain threshold',
             'is_reverse': True,
@@ -53,7 +53,7 @@ def test_discord_messaging():
         {
             'symbol': 'TEST3',
             'company': 'Test Company 3', 
-            'ratio': '1:5',
+            'ratio': '5->1',
             'effective_date': '2025-08-10',
             'fractional': 'check rounding policy',
             'is_reverse': True,
@@ -63,7 +63,7 @@ def test_discord_messaging():
         {
             'symbol': 'TEST4',
             'company': 'Test Company 4',
-            'ratio': '1:15',
+            'ratio': '15->1',
             'effective_date': '2025-08-08',
             'fractional': 'rounded up to nearest whole share',
             'is_reverse': True,
@@ -73,7 +73,7 @@ def test_discord_messaging():
         {
             'symbol': 'TEST5',
             'company': 'Test Company 5',
-            'ratio': '1:3',
+            'ratio': '3->1',
             'effective_date': '2025-08-11',
             'fractional': 'rounded up to nearest whole share',
             'is_reverse': True,

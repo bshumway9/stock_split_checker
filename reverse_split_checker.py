@@ -112,11 +112,11 @@ def send_message(splits):
                         if current_price and ratio != 'N/A':
                             try:
                                 # Extract the ratio number (e.g., "1:10" -> 10)
-                                if ':' in ratio:
-                                    ratio_parts = ratio.split(':')
+                                if '->' in ratio:
+                                    ratio_parts = ratio.split('->')
                                     if len(ratio_parts) == 2:
                                         multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * multiplier
+                                        projected_price = current_price * float(ratio_parts[0])
                                         price_display = f"${current_price}--->${projected_price:.2f}"
                                     else:
                                         price_display = f"${current_price} ({ratio})"
@@ -148,11 +148,11 @@ def send_message(splits):
                         if current_price and ratio != 'N/A':
                             try:
                                 # Extract the ratio number (e.g., "1:10" -> 10)
-                                if ':' in ratio:
-                                    ratio_parts = ratio.split(':')
+                                if '->' in ratio:
+                                    ratio_parts = ratio.split('->')
                                     if len(ratio_parts) == 2:
                                         multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * multiplier
+                                        projected_price = current_price * float(ratio_parts[0])
                                         price_display = f"${current_price}--->${projected_price:.2f}"
                                     else:
                                         price_display = f"${current_price} ({ratio})"
@@ -185,11 +185,11 @@ def send_message(splits):
                         if current_price and ratio != 'N/A':
                             try:
                                 # Extract the ratio number (e.g., "1:10" -> 10)
-                                if ':' in ratio:
-                                    ratio_parts = ratio.split(':')
+                                if '->' in ratio:
+                                    ratio_parts = ratio.split('->')
                                     if len(ratio_parts) == 2:
                                         multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * multiplier
+                                        projected_price = current_price * float(ratio_parts[0])
                                         price_display = f"${current_price}--->${projected_price:.2f}"
                                     else:
                                         price_display = f"${current_price} ({ratio})"
