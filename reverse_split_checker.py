@@ -1,3 +1,4 @@
+
 import schedule
 import time
 from datetime import datetime
@@ -11,6 +12,24 @@ from table_scrapers import scrape_yahoo_finance_selenium, scrape_hedge_follow, s
 from site_scrapers import scrape_stocktitan, scrape_sec_edgar
 from helper_functions import get_random_emoji, next_market_day, add_current_prices
 from collections import defaultdict
+import time as pytime
+
+# Generic retry helper
+def run_with_retries(func, max_retries=2, delay=5, *args, **kwargs):
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+            logging.warning(f"Error in {func.__name__} (attempt {attempt+1}/{max_retries+1}): {e}")
+            if attempt < max_retries:
+                logging.info(f"Retrying {func.__name__} in {delay} seconds...")
+                pytime.sleep(delay)
+    logging.error(f"All {max_retries+1} attempts failed for {func.__name__}")
+    if last_exception:
+        raise last_exception
+    return None
 
 # Load environment variables
 # Required .env variables:
@@ -31,19 +50,36 @@ logging.basicConfig(filename='stock_split_checker.log', level=logging.INFO,
 
 def get_reverse_splits():
     """Aggregate reverse split data from multiple sources."""
+
     splits = []
     past_splits = []  # To store past splits if needed
     check_splits = []
     # splits.extend(scrape_sec_edgar())
     # splits.extend(scrape_stocktitan())
     # splits.extend(scrape_yahoo_finance())  # Legacy HTTP method
-    splits.extend(scrape_yahoo_finance_selenium())  # New Selenium method
+    try:
+        splits.extend(run_with_retries(scrape_yahoo_finance_selenium, max_retries=2, delay=10))
+    except Exception as e:
+        logging.error(f"Yahoo Finance scraping failed after retries: {e}")
 
-    new_splits, new_past_splits = scrape_hedge_follow()  # New HedgeFollow scraper
-    splits.extend(new_splits)
-    past_splits.extend(new_past_splits)
+    try:
+        new_splits, new_past_splits = run_with_retries(scrape_hedge_follow, max_retries=2, delay=10)
+        splits.extend(new_splits)
+        past_splits.extend(new_past_splits)
+    except Exception as e:
+        logging.error(f"HedgeFollow scraping failed after retries: {e}")
 
-    recent_splits, all_splits_with_links = scrape_stock_titan()  # New StockTitan scraper
+    try:
+        recent_splits, all_splits_with_links = run_with_retries(scrape_stock_titan, max_retries=2, delay=10)
+    except Exception as e:
+        logging.error(f"StockTitan scraping failed after retries: {e}")
+        recent_splits, all_splits_with_links = [], []
+
+    # If you want to add Nasdaq with retries, uncomment below:
+    # try:
+    #     splits.extend(run_with_retries(scrape_nasdaq, max_retries=2, delay=10))
+    # except Exception as e:
+    #     logging.error(f"Nasdaq scraping failed after retries: {e}")
     
     # Add recent splits to main list
     for split in recent_splits:
@@ -76,7 +112,7 @@ def get_reverse_splits():
                 # Merge unique links
                 merged_links = list(set(existing_links + new_links))
                 existing_split['article_link'] = merged_links
-                logging.info(f"Merged article links for past split {symbol}: {len(merged_links)} total links")
+                # logging.info(f"Merged article links for past split {symbol}: {len(merged_links)} total links")
                 break
 
     # splits.extend(scrape_nasdaq())

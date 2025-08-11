@@ -29,7 +29,7 @@ def scrape_yahoo_finance_selenium():
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=1920,1080")  # Set window size for better rendering
+        # chrome_options.add_argument("--window-size=1920,1080")  # Set window size for better rendering
         
         # Initialize the Chrome WebDriver
         logging.info("Initializing Chrome WebDriver for Yahoo Finance scraping")
@@ -309,7 +309,7 @@ def scrape_yahoo_finance_selenium():
         
     except Exception as e:
         logging.error(f"Error scraping Yahoo Finance with Selenium: {e}")
-    
+        raise  # Raise so retry logic can catch
     finally:
         # Always close the WebDriver to free resources
         if driver:
@@ -318,7 +318,6 @@ def scrape_yahoo_finance_selenium():
                 logging.info("Yahoo Finance WebDriver closed successfully")
             except Exception as e:
                 logging.error(f"Error closing Yahoo Finance WebDriver: {e}")
-    
     return splits
 
 
@@ -422,7 +421,7 @@ def scrape_hedge_follow():
                     past_splits.append(split_info)
                 else:
                     splits.append(split_info)
-                logging.info(f"Found HedgeFollow split: {symbol} - {ratio} on {effective_date}")
+                    logging.info(f"Found HedgeFollow split: {symbol} - {ratio} on {effective_date}")
                 
             except Exception as e:
                 logging.error(f"Error processing HedgeFollow row: {e}")
@@ -432,7 +431,7 @@ def scrape_hedge_follow():
         
     except Exception as e:
         logging.error(f"Error scraping HedgeFollow: {e}")
-    
+        raise
     finally:
         # Always close the WebDriver to free resources
         if driver:
@@ -441,7 +440,6 @@ def scrape_hedge_follow():
                 logging.info("WebDriver closed successfully")
             except Exception as e:
                 logging.error(f"Error closing WebDriver: {e}")
-    
     return splits, past_splits
 
 
@@ -562,7 +560,7 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
                     
                     # Skip OTC stocks as requested
                     if exchange.upper() == "OTC":
-                        logging.info(f"Skipping OTC stock: {symbol}")
+                        # logging.info(f"Skipping OTC stock: {symbol}")
                         continue
                     
                     # Extract the title
@@ -581,7 +579,7 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
                         
                         # Skip past splits
                         if split_date < prev_week:
-                            logging.info(f"Skipping past StockTitan split: {symbol} on {effective_date}")
+                            # logging.info(f"Skipping past StockTitan split: {symbol} on {effective_date}")
                             continue
                             
                     except ValueError as e:
@@ -672,7 +670,7 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
                     # Add to all splits list if it has article links
                     if article_links:
                         all_splits_with_links.append(split_info)
-                        logging.info(f"Added {symbol} to all splits with links")
+                        # logging.info(f"Added {symbol} to all splits with links")
                         
                 except Exception as e:
                     logging.error(f"Error processing StockTitan ticker in row: {e}")
@@ -686,8 +684,7 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
         
     except Exception as e:
         logging.error(f"Error processing StockTitan data: {e}")
-        # Don't raise here, we want to return what we have
-    
+        raise
     finally:
         # Always close the WebDriver to free resources
         if driver:
@@ -696,7 +693,6 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
                 logging.info("StockTitan WebDriver closed successfully")
             except Exception as e:
                 logging.error(f"Error closing StockTitan WebDriver: {e}")
-    
     return recent_splits, all_splits_with_links
 
 
@@ -928,7 +924,7 @@ def scrape_nasdaq():
                     
                     # Skip past splits
                     if split_date < next_day:
-                        logging.info(f"Skipping past Nasdaq split: {symbol} on {effective_date}")
+                        # logging.info(f"Skipping past Nasdaq split: {symbol} on {effective_date}")
                         continue
                         
                 except Exception as e:
@@ -974,7 +970,7 @@ def scrape_nasdaq():
         
     except Exception as e:
         logging.error(f"Error scraping Nasdaq: {e}")
-    
+        raise
     finally:
         # Always close the WebDriver to free resources
         if driver:
@@ -983,5 +979,4 @@ def scrape_nasdaq():
                 logging.info("Nasdaq WebDriver closed successfully")
             except Exception as e:
                 logging.error(f"Error closing Nasdaq WebDriver: {e}")
-    
     return splits
