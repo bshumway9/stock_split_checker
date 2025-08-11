@@ -53,17 +53,29 @@ def check_roundup(splits):
         company = split.get('company', '')
         date = split.get('effective_date', '')
         ratio = split.get('ratio', '')
+        article_link = split.get('article_link', [])
         
         if not symbol:
             continue
             
         try:
             # Create a more specific prompt with context to help the search
+            article_info = ""
+            if article_link and len(article_link) > 0:
+                logging.info(f"Found {len(article_link)} article links for {symbol}, including in prompt")
+                if len(article_link) == 1:
+                    article_info = f"\nAdditionally, please check this specific article about the split: {article_link[0]}"
+                else:
+                    article_links_text = "\n".join([f"- {link}" for link in article_link])
+                    article_info = f"\nAdditionally, please check these specific articles about the split:\n{article_links_text}"
+            else:
+                logging.info(f"No article links found for {symbol}, skipping article info in prompt")
+            
             prompt = f"""
             Search for factual information about how {symbol} ({company}) will handle fractional shares 
             in their upcoming reverse stock split (ratio: {ratio}) scheduled for {date}.
             Please specifically search for their latest SEC filings, press releases, or investor relations
-            information about this reverse split for the most up to date and accurate information.
+            information about this reverse split for the most up to date and accurate information.{article_info}
 
             Based on factual information only, tell me how they will handle fractional shares after this split:
             1. Will they round up fractional shares to the nearest whole share?
@@ -82,6 +94,45 @@ def check_roundup(splits):
             
             Do not include any explanations, just respond with one of these exact phrases.
             """
+            # prompt = f"""
+            # You must use the Google Search grounding tool and base your decision ONLY on content you open with it.
+            # Do not use prior knowledge. If you cannot open an authoritative source that explicitly states the policy,
+            # respond NO_INFO.
+
+            # Task
+            # Determine how {symbol} ({company}) will handle fractional shares in the reverse stock split with ratio {ratio}
+            # scheduled for {date}.
+
+            # Authority order (strict)
+            # 1) SEC filings on sec.gov for this issuer that mention this reverse split and fractional shares
+            #    (e.g., 8-K, 6-K, DEF 14A/14C/Information Statement, S-1/S-3 prospectus, 10-Q/10-K, Form 25, Certificate of Amendment).
+            # 2) Official issuer press release or investor relations page that explicitly describes fractional share treatment.
+            # Ignore blogs, forums, third-party summaries, brokers, and news sites unless they link to and quote an SEC filing.
+
+            # Grounding protocol
+            # - First search: site:sec.gov {symbol} {company} "reverse stock split" fractional {ratio} {date}
+            # - Also try variations: "cash in lieu", "no fractional shares", "rounded", "fractional", "reverse split".
+            # - Open the most recent filing related to this split. Verify issuer matches the ticker/company and that ratio/date align.
+            # - Extract the exact language about fractional shares. If unclear, search again or open another filing.
+            # - If sources conflict or the filing is about a different event, respond NO_INFO.
+
+            # Decision mapping (use the extracted sentence to choose exactly one)
+            # - Says no fractional shares will be issued and cash will be paid for any fractional share -> CASH_IN_LIEU
+            # - Says fractional shares will be rounded up to the nearest whole share, or each holder receives one whole share in place of any fractional interest -> ROUND_UP
+            # - Says fractional shares will be rounded down (truncated) -> ROUND_DOWN
+            # - Says rounding up occurs only above a specific threshold (e.g., >= 0.5 share, "nearest whole share") -> THRESHOLD ROUND_UP
+            # - Any other explicit treatment (e.g., aggregate fractional interests, broker/record-holder aggregation, scrip) -> OTHER: <brief explanation>
+            # - If you cannot find an authoritative source per the order above, or the ratio/date/issuer do not match -> NO_INFO
+
+            # Output
+            # Respond with only one of these exact strings and nothing else:
+            # ROUND_UP
+            # CASH_IN_LIEU
+            # ROUND_DOWN
+            # THRESHOLD ROUND_UP
+            # OTHER: <brief explanation>
+            # NO_INFO
+            # """
             
             # Query Gemini API with grounding
             logging.info(f"Querying Gemini API for {symbol} with grounding")
@@ -91,7 +142,10 @@ def check_roundup(splits):
                 config=config
             )
             
-            result = response.text.strip()
+            result = response.text.strip() if response.text is not None else ""
+            if result == "":
+                logging.warning(f"No response text for {symbol} defaulting to NO_INFO, api response: {response.body}")
+                result = "NO_INFO"
             logging.info(f"Grounded Gemini API response for {symbol}: {result}")
             
             # Update the split information based on response

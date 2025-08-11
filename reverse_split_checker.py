@@ -43,29 +43,96 @@ def get_reverse_splits():
     splits.extend(new_splits)
     past_splits.extend(new_past_splits)
 
-    new_splits = scrape_stock_titan()  # New StockTitan scraper
-    for split in new_splits:
+    recent_splits, all_splits_with_links = scrape_stock_titan()  # New StockTitan scraper
+    
+    # Add recent splits to main list
+    for split in recent_splits:
         if split['symbol'] not in [s['symbol'] for s in splits] and split['symbol'] not in [s['symbol'] for s in past_splits]:
             check_splits.append(split)
+    
+    # Merge article links for existing splits
+    for new_split in all_splits_with_links:
+        symbol = new_split['symbol']
+        new_links = new_split.get('article_link', [])
+        
+        # Check against current splits
+        for existing_split in splits:
+            if existing_split['symbol'] == symbol:
+                existing_links = existing_split.get('article_link', [])
+                if isinstance(existing_links, str):
+                    existing_links = [existing_links]
+                # Merge unique links
+                merged_links = list(set(existing_links + new_links))
+                existing_split['article_link'] = merged_links
+                logging.info(f"Merged article links for {symbol}: {len(merged_links)} total links")
+                break
+        
+        # Check against past splits
+        for existing_split in past_splits:
+            if existing_split['symbol'] == symbol:
+                existing_links = existing_split.get('article_link', [])
+                if isinstance(existing_links, str):
+                    existing_links = [existing_links]
+                # Merge unique links
+                merged_links = list(set(existing_links + new_links))
+                existing_split['article_link'] = merged_links
+                logging.info(f"Merged article links for past split {symbol}: {len(merged_links)} total links")
+                break
 
     # splits.extend(scrape_nasdaq())
     
     # Remove duplicates based on symbol and effective date
     unique_splits = []
-    seen = set()
+    splits_by_symbol = {}
+
+    # Group splits by symbol
     for split in splits:
-        key = (split['symbol'], split['effective_date'])
-        if key not in seen:
-            seen.add(key)
-            if split.get('is_reverse', False):  # Only keep reverse splits
-                unique_splits.append(split)
-    
+        symbol = split['symbol']
+        # Skip if not a reverse split
+        if not split.get('is_reverse', False):
+            continue
+            
+        if symbol not in splits_by_symbol:
+            splits_by_symbol[symbol] = []
+        
+        splits_by_symbol[symbol].append(split)
+
+    # Process each symbol group
+    for symbol, symbol_splits in splits_by_symbol.items():
+        # Sort splits by effective date (latest first)
+        sorted_splits = sorted(
+            symbol_splits, 
+            key=lambda x: datetime.strptime(x['effective_date'], '%Y-%m-%d'), 
+            reverse=True
+        )
+        
+        # Take the split with the latest effective date as our base
+        latest_split = sorted_splits[0]
+        
+        # Combine article_links from all splits with this symbol
+        all_article_links = []
+        for split in sorted_splits:
+            links = split.get('article_link', [])
+            # Convert single string to list if necessary
+            if isinstance(links, str):
+                all_article_links.append(links)
+            else:
+                # For lists, add each item
+                all_article_links.extend(links)
+        
+        # Remove duplicates
+        if all_article_links:  # Only set if we have links
+            latest_split['article_link'] = list(set(all_article_links))
+        
+        unique_splits.append(latest_split)
+
     # Filter for splits from today onward
     today = next_market_day()
     upcoming_splits = [
         split for split in unique_splits
         if datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
     ]
+    logging.info(f"Found {len([split for split in upcoming_splits if split['article_link']])} upcoming splits with article links with {len(upcoming_splits)} total upcoming splits")
     return upcoming_splits
 
 
@@ -286,11 +353,11 @@ def schedule_task():
     """Schedule the task to run daily at 8:00 AM on weekdays."""
     # Note: When running in Docker, scheduling is handled by cron
     # This function is kept for backwards compatibility
-    schedule.every().monday.at("08:00").do(main)
-    schedule.every().tuesday.at("08:00").do(main)
-    schedule.every().wednesday.at("08:00").do(main)
-    schedule.every().thursday.at("08:00").do(main)
-    schedule.every().friday.at("08:00").do(main)
+    schedule.every().monday.at("14:00").do(main)  # 2 PM UTC
+    schedule.every().tuesday.at("14:00").do(main) # 8 AM MST
+    schedule.every().wednesday.at("14:00").do(main)
+    schedule.every().thursday.at("14:00").do(main)
+    schedule.every().friday.at("14:00").do(main)
 
 if __name__ == "__main__":
     # Run once immediately for testing

@@ -1,6 +1,6 @@
 # Stock Split Checker Docker Setup
 
-This Docker setup runs the stock split checker automatically every weekday at 8:00 AM EST.
+This Docker setup runs the stock split checker automatically every weekday at 8:00 AM MST.
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ GEMINI_API_KEY=your_gemini_api_key
 ```
 
 ### Schedule
-- **Runs:** Monday through Friday at 8:00 AM EST
+- **Runs:** Monday through Friday at 8:00 AM MST
 - **Timezone:** America/New_York (EST/EDT)
 - **Cron expression:** `0 8 * * 1-5`
 

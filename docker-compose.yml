@@ -13,7 +13,7 @@ services:
       # Mount stock split checker log file
       - ./stock_split_checker.log:/app/stock_split_checker.log
     environment:
-      - TZ=America/New_York  # Set timezone for cron jobs
+      - TZ=America/Denver  # Mountain Time (MST/MDT with daylight saving)
     # Optional: if you want to access the container
     # ports:
     #   - "8080:8080"
