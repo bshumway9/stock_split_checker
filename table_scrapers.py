@@ -25,11 +25,25 @@ def scrape_yahoo_finance_selenium():
     try:
         # Set up Chrome options for headless browsing
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        # Use new headless mode for better memory efficiency (Chrome 109+)
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        # chrome_options.add_argument("--window-size=1920,1080")  # Set window size for better rendering
+        # Memory-saving Chrome flags
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-client-side-phishing-detection")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--disable-translate")
+        chrome_options.add_argument("--metrics-recording-only")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--safebrowsing-disable-auto-update")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        # Block images to save memory
+        chrome_options.add_argument("--blink-settings=imagesEnabled=false")
         
         # Initialize the Chrome WebDriver
         logging.info("Initializing Chrome WebDriver for Yahoo Finance scraping")
@@ -338,10 +352,22 @@ def scrape_hedge_follow():
     try:
         # Set up Chrome options for headless browsing
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run in headless mode (no browser UI)
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-client-side-phishing-detection")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--disable-translate")
+        chrome_options.add_argument("--metrics-recording-only")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--safebrowsing-disable-auto-update")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_options.add_argument("--blink-settings=imagesEnabled=false")
         
         # Initialize the Chrome WebDriver
         logging.info("Initializing Chrome WebDriver for HedgeFollow scraping")
@@ -468,12 +494,25 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
             
             # Set up Chrome options for headless browsing
             chrome_options = Options()
-            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            chrome_options.add_argument("--disable-background-networking")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-client-side-phishing-detection")
+            chrome_options.add_argument("--disable-default-apps")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-sync")
+            chrome_options.add_argument("--disable-translate")
+            chrome_options.add_argument("--metrics-recording-only")
+            chrome_options.add_argument("--no-first-run")
+            chrome_options.add_argument("--safebrowsing-disable-auto-update")
+            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+            chrome_options.add_argument("--blink-settings=imagesEnabled=false")
+            # Only run one Chrome WebDriver at a time for lowest memory usage
             
             # Initialize the Chrome WebDriver
             logging.info("Initializing Chrome WebDriver for StockTitan scraping")
@@ -707,11 +746,23 @@ def scrape_nasdaq():
     try:
         # Set up Chrome options for headless browsing
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-client-side-phishing-detection")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--disable-translate")
+        chrome_options.add_argument("--metrics-recording-only")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--safebrowsing-disable-auto-update")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_options.add_argument("--blink-settings=imagesEnabled=false")
         
         # Initialize the Chrome WebDriver
         logging.info("Initializing Chrome WebDriver for Nasdaq scraping")
