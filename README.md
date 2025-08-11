@@ -1,3 +1,24 @@
+# Discord Webhook Setup
+
+To enable Discord notifications, you must set up a Discord webhook and provide its URL as an environment variable.
+
+**Steps:**
+1. In your Discord server, go to the channel where you want to receive notifications.
+2. Click the gear icon (Edit Channel) > Integrations > Webhooks > New Webhook.
+3. Copy the webhook URL.
+4. Set the following environment variable in your `.env` file or Docker environment:
+
+```
+DISCORD_WEBHOOK_URL=<your_discord_webhook_url>
+```
+
+**Example .env entry:**
+```
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz
+```
+
+The application will use this variable to send notifications to your Discord channel.
+
 # Stock Split Checker
 
 A Python application that monitors upcoming reverse stock splits from multiple financial data sources and automatically sends notifications via email or SMS. The application helps identify stocks that round up fractional shares during reverse splits, which can be profitable for investors holding small positions.
@@ -61,14 +82,16 @@ Create a `.env` file in the project root directory with the following variables:
 ### Required Variables
 
 ```env
-# Gmail Configuration (Required for notifications)
+# Discord webhook (Required for notifications) (Primary Notification)
+
+# Gmail Configuration (Required for notifications) (Secondary Notification)
 SENDER_EMAIL=your-gmail@gmail.com
 GMAIL_KEY=your-app-password
 
 # Google Gemini API (Required for AI analysis of fractional share handling)
 GEMINI_API_KEY=your-gemini-api-key
 
-# Phone Number (Optional, for SMS notifications)
+# Phone Number (Optional, for SMS notifications) (Last resort notifications)
 PHONE_NUMBER=1234567890
 ```
 
