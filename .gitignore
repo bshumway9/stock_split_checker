@@ -1,5 +1,13 @@
+
+# Python virtual environments
 .env
-__pycache__
+env/
+venv/
+.venv/
+ENV/
+.env.bak/
+.python-version
+pip-selfcheck.json
+__pycache__/
 /logs
-.venv
 stock_split_checker.log

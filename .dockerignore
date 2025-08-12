@@ -10,6 +10,8 @@ __pycache__/
 
 # Environment files (these should be mounted as volumes instead)
 .env
+venv/
+.venv/
 
 # IDE files
 .vscode/
