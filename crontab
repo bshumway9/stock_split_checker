@@ -4,8 +4,10 @@
 # Examples:
 # 0 8 * * 1-5   = 8:00 AM weekdays (current)
 # 30 7 * * 1-5  = 7:30 AM weekdays  
-# 0 14 * * 1-5  = 2:00 PM weekdays (14:00 in 24-hour format)
+# 0 14 * * 1-5  = 8:00 AM weekdays (14:00 in 24-hour format) (THIS IS THE ONLY CORRECT LINE FOR MST)
 # 15 6 * * 1-5  = 6:15 AM weekdays
-0 8 * * 1-5 cd /app && /usr/local/bin/python reverse_split_checker.py >> /var/log/cron.log 2>&1
+0 14 * * 1-5 cd /app && /usr/local/bin/python reverse_split_checker.py >> /var/log/cron.log 2>&1
 
 # Empty line required at end of crontab file
+
+@reboot cd /app && /usr/local/bin/python check_missed_run.py >> /var/log/cron.log 2>&1
