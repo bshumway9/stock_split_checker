@@ -218,8 +218,8 @@ def send_message(splits):
                                 if '->' in ratio:
                                     ratio_parts = ratio.split('->')
                                     if len(ratio_parts) == 2:
-                                        multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * float(ratio_parts[0])
+                                        multiplier = float(ratio_parts[0]) / float(ratio_parts[1])
+                                        projected_price = current_price * multiplier
                                         price_display = f"${current_price}--->${projected_price:.2f}"
                                     else:
                                         price_display = f"${current_price} ({ratio})"
@@ -254,8 +254,8 @@ def send_message(splits):
                                 if '->' in ratio:
                                     ratio_parts = ratio.split('->')
                                     if len(ratio_parts) == 2:
-                                        multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * float(ratio_parts[0])
+                                        multiplier = float(ratio_parts[0]) / float(ratio_parts[1])
+                                        projected_price = current_price * multiplier
                                         price_display = f"${current_price}--->${projected_price:.2f}"
                                     else:
                                         price_display = f"${current_price} ({ratio})"
@@ -372,8 +372,8 @@ def main():
     logging.info("Starting reverse split check")
     splits = get_reverse_splits()
     logging.info(f"Found {len(splits)} upcoming reverse splits")
-    
-    # Add current stock prices
+
+    # Add current stock prices and remove OTC stocks
     if splits:
         splits = add_current_prices(splits)
     

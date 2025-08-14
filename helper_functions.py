@@ -69,7 +69,9 @@ def next_market_day(date=None, previous=False, days=1):
 
 
 def add_current_prices(splits):
-    """Add current stock prices to splits data using yfinance."""
+    """Add current stock prices to splits data using yfinance.
+        Also checks if it is an OTC stock and removes it if so.
+    """
     if not splits:
         return splits
     
@@ -77,18 +79,26 @@ def add_current_prices(splits):
     
     # Extract all symbols
     symbols = [split['symbol'] for split in splits]
-    
+
     try:
         # Fetch all prices using the correct format
         multiple_tickers = yf.Tickers(symbols)
-        
+
         # Create a dictionary to store prices
         prices = {}
-        
+        # Keep track of OTC symbols to remove
+        otc_symbols = set()
+
         for symbol in symbols:
             try:
                 ticker_info = multiple_tickers.tickers[symbol].info
-                
+
+                # Check if stock is OTC
+                if 'fullExchangeName' in ticker_info and 'OTC' in ticker_info['fullExchangeName']:
+                    logging.info(f"{symbol} is OTC ({ticker_info['fullExchangeName']}), removing from splits.")
+                    otc_symbols.add(symbol)
+                    continue
+
                 # Try to get current price from different fields
                 current_price = None
                 if 'currentPrice' in ticker_info:
@@ -97,29 +107,32 @@ def add_current_prices(splits):
                     current_price = ticker_info['regularMarketPrice']
                 elif 'previousClose' in ticker_info:
                     current_price = ticker_info['previousClose']
-                
+
                 if current_price:
                     prices[symbol] = round(float(current_price), 2)
                     logging.info(f"Fetched price for {symbol}: ${current_price}")
                 else:
                     logging.warning(f"Could not fetch price for {symbol}")
                     prices[symbol] = None
-                    
+
             except Exception as e:
                 logging.error(f"Error fetching price for {symbol}: {e}")
                 prices[symbol] = None
-        
+
+        # Remove OTC stocks from splits
+        splits = [split for split in splits if split['symbol'] not in otc_symbols]
+
         # Add prices to splits data
         for split in splits:
             symbol = split['symbol']
             split['current_price'] = prices.get(symbol, None)
-            
-        logging.info(f"Successfully added prices for {len([p for p in prices.values() if p is not None])}/{len(symbols)} stocks")
-        
+
+        logging.info(f"Successfully added prices for {len([p for p in prices.values() if p is not None])}/{len(symbols)} stocks (removed {len(otc_symbols)} OTC)")
+
     except Exception as e:
         logging.error(f"Error fetching stock prices: {e}")
         # Add None prices if fetching fails
         for split in splits:
             split['current_price'] = None
-    
+
     return splits

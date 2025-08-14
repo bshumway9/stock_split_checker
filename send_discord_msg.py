@@ -210,8 +210,8 @@ def format_discord_message(splits: list) -> str:
                         if '->' in ratio:
                             ratio_parts = ratio.split('->')
                             if len(ratio_parts) == 2:
-                                multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                projected_price = current_price * float(ratio_parts[0])
+                                multiplier = float(ratio_parts[0]) / float(ratio_parts[1])
+                                projected_price = current_price * multiplier
                                 price_display = f"${current_price}--->${projected_price:.2f}"
                             else:
                                 price_display = f"${current_price} ({ratio})"

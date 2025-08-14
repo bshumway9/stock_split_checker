@@ -18,6 +18,32 @@ def configure_gemini():
     client = genai.Client(api_key=api_key)
     return client
 
+def extract_allowed_output(response, allowed_outputs):
+    """
+    Extracts the first allowed output phrase from Gemini response parts.
+    """
+    # Defensive: response.parts may be nested under response.content or response.candidates[0].content
+    parts = []
+    if hasattr(response, "parts"):
+        parts = response.parts
+    elif hasattr(response, "candidates") and response.candidates:
+        candidate = response.candidates[0]
+        if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
+            parts = candidate.content.parts
+
+    for part in parts:
+        text = getattr(part, "text", "").strip()
+        for phrase in allowed_outputs:
+            if text == phrase:
+                return phrase
+    # Fallback: check if any allowed phrase is in any part
+    for part in parts:
+        text = getattr(part, "text", "").strip()
+        for phrase in allowed_outputs:
+            if phrase in text:
+                return phrase
+    return "OTHER/NOT_ENOUGH_INFO"
+
 def check_roundup(splits):
     """
     Use Gemini API with grounding to check if companies are rounding up fractional shares in reverse splits.
@@ -35,29 +61,27 @@ def check_roundup(splits):
         return splits
     
     # Define the grounding tool for Google Search
-    grounding_tool = genai.types.Tool(
-        google_search=genai.types.GoogleSearch()
-    )
-    
-    # Configure generation settings
-    config = genai.types.GenerateContentConfig(
-        tools=[grounding_tool],
-        temperature=0.2,  # Lower temperature for more factual responses
-        top_k=40,
-        top_p=0.95,
-        max_output_tokens=500
-    )
-    
+    # grounding_tool = genai.types.Tool(
+    #     google_search=genai.types.GoogleSearch(),
+    #     google_search_retrieval=genai.types.GoogleSearchRetrieval(),
+    #     url_context=genai.types.UrlContext()
+    # )
+    google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
+    # google_search_retrieval = genai.types.Tool(google_search_retrieval=genai.types.GoogleSearchRetrieval())
+    url_context = genai.types.Tool(url_context=genai.types.UrlContext())
+
+    tools = [google_search, url_context]
+
     for i, split in enumerate(splits):
         symbol = split.get('symbol')
         company = split.get('company', '')
         date = split.get('effective_date', '')
         ratio = split.get('ratio', '')
         article_link = split.get('article_link', [])
-        
+
         if not symbol:
             continue
-            
+
         try:
             # Create a more specific prompt with context to help the search
             article_info = ""
@@ -68,9 +92,10 @@ def check_roundup(splits):
                 else:
                     article_links_text = "\n".join([f"- {link}" for link in article_link])
                     article_info = f"\nAdditionally, please check these specific articles about the split:\n{article_links_text}"
+                # tools.append(url_context)
             else:
                 logging.info(f"No article links found for {symbol}, skipping article info in prompt")
-            
+
             prompt = f"""
             Search for factual information about how {symbol} ({company}) will handle fractional shares 
             in their upcoming reverse stock split (ratio: {ratio}) scheduled for {date}.
@@ -88,9 +113,8 @@ def check_roundup(splits):
             "ROUND_UP" - if they'll certainly round up to nearest whole share
             "CASH_IN_LIEU" - if they'll certainly pay cash for fractional shares
             "ROUND_DOWN" - if they'll certainly round down
-            "THRESHOLD ROUND_UP" - if they'll certainly round up only if fractional shares exceed a certain threshold
-            "OTHER: [brief explanation]" - for other methods or uncertainty (explain briefly)
-            "NO_INFO" - if no information is available
+            "THRESHOLD_ROUND_UP" - if they'll certainly round up only if fractional shares exceed a certain threshold
+            "OTHER/NOT_ENOUGH_INFO" - for other methods or uncertainty
             
             Do not include any explanations, just respond with one of these exact phrases.
             """
@@ -133,6 +157,59 @@ def check_roundup(splits):
             # OTHER: <brief explanation>
             # NO_INFO
             # """
+            allowed_outputs = [
+                "ROUND_UP",
+                "CASH_IN_LIEU",
+                "ROUND_DOWN",
+                "THRESHOLD_ROUND_UP",
+                "OTHER/NOT_ENOUGH_INFO"
+            ]
+            # Configure generation settings
+            config = genai.types.GenerateContentConfig(
+                tools=tools,
+                temperature=0.2,  # Lower temperature for more factual responses
+                top_k=40,
+                top_p=0.95,
+                # max_output_tokens=500
+            )
+
+            # Query Gemini API with grounding
+            logging.info(f"Querying Gemini API for {symbol} with grounding")
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",  # or gemini-1.5-pro if you prefer
+                contents=prompt,
+                config=config
+            )
+
+            print('response: ', response)
+            result = extract_allowed_output(response, allowed_outputs)
+            if result == "":
+                logging.warning(f"No response text for {symbol} defaulting to NO_INFO, api response: {getattr(response, 'body', None)}")
+                result = "NO_INFO"
+            logging.info(f"Grounded Gemini API response for {symbol}: {result}")
+            print(f"Grounded Gemini API response for {symbol}: {result}")
+
+            # Update the split information based on response
+            if "ROUND_UP" in result:
+                splits[i]['fractional'] = "Rounded up to nearest whole share"
+            elif "CASH_IN_LIEU" in result:
+                splits[i]['fractional'] = "Cash payment for fractional shares"
+            elif "ROUND_DOWN" in result:
+                splits[i]['fractional'] = "Rounded down to nearest whole share"
+            elif "THRESHOLD_ROUND_UP" in result:
+                splits[i]['fractional'] = "Rounded up if fractional shares exceed a certain threshold"
+            else:
+                splits[i]['fractional'] = "Not enough information"
+
+            # Don't overwhelm the API, add a small delay between requests
+            time.sleep(1)
+
+        except Exception as e:
+            logging.error(f"Error querying Gemini API for {symbol}: {e}")
+            logging.error(f"Exception details: {str(e)}")
+            splits[i]['fractional'] = "Error checking fractional shares handling"
+            
+
             
             # Query Gemini API with grounding
             logging.info(f"Querying Gemini API for {symbol} with grounding")
@@ -142,11 +219,37 @@ def check_roundup(splits):
                 config=config
             )
             
-            result = response.text.strip() if response.text is not None else ""
+            print('response: ', response)
+            result = extract_allowed_output(response, allowed_outputs)
             if result == "":
-                logging.warning(f"No response text for {symbol} defaulting to NO_INFO, api response: {response.body}")
+                logging.warning(f"No response text for {symbol} defaulting to NO_INFO, api response: {getattr(response, 'body', None)}")
                 result = "NO_INFO"
             logging.info(f"Grounded Gemini API response for {symbol}: {result}")
+            print(f"Grounded Gemini API response for {symbol}: {result}")
+
+            # # Log each URI used for the response, if available
+            # try:
+            #     print(f"response: {response}")
+            #     print()
+            #     print(f"\nGemini grounding metadata for {symbol}: {response.candidates}")
+            #     print()
+            #     print(f"Gemini grounding metadata for {symbol}: {response.candidates[0]}")
+            #     logging.info(f"Gemini grounding metadata for {symbol}: {response.candidates[0].grounding_metadata}")
+            #     supports = response.candidates[0].grounding_metadata.grounding_supports
+            #     logging.info(f"Gemini grounding supports for {symbol}: {supports}")
+            #     chunks = response.candidates[0].grounding_metadata.grounding_chunks
+            #     logging.info(f"Gemini grounding chunks for {symbol}: {chunks}")
+            #     if chunks:
+            #         uris = set()
+            #         for chunk in chunks:
+            #             # Defensive: chunk.web may not exist
+            #             web = getattr(chunk, 'web', None)
+            #             if web and hasattr(web, 'uri'):
+            #                 uris.add(web.uri)
+            #         for uri in uris:
+            #             logging.info(f"Gemini grounding support URI for {symbol}: {uri}")
+            # except Exception as e:
+            #     logging.warning(f"Could not extract Gemini grounding URIs for {symbol}: {e}")
             
             # Update the split information based on response
             if "ROUND_UP" in result:
@@ -155,13 +258,11 @@ def check_roundup(splits):
                 splits[i]['fractional'] = "Cash payment for fractional shares"
             elif "ROUND_DOWN" in result:
                 splits[i]['fractional'] = "Rounded down to nearest whole share"
-            elif "THRESHOLD ROUND_UP" in result:
+            elif "THRESHOLD_ROUND_UP" in result:
                 splits[i]['fractional'] = "Rounded up if fractional shares exceed a certain threshold"
-            elif result.startswith("OTHER:"):
-                splits[i]['fractional'] = result.replace("OTHER:", "").strip()
             else:
-                splits[i]['fractional'] = "Not specified"
-                
+                splits[i]['fractional'] = "Not enough information"
+
             # Don't overwhelm the API, add a small delay between requests
             time.sleep(1)
             
