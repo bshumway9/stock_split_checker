@@ -7,7 +7,7 @@ import asyncio
 from send_txt_msg import send_txt, send_txts, send_email
 from send_discord_msg import send_discord_message, send_discord_webhook, format_discord_message
 from dotenv import dotenv_values
-from check_roundup import check_roundup
+from check_roundup import check_roundup, get_split_details
 from table_scrapers import scrape_yahoo_finance_selenium, scrape_hedge_follow, scrape_nasdaq, scrape_stock_titan
 from site_scrapers import scrape_stocktitan, scrape_sec_edgar
 from helper_functions import get_random_emoji, next_market_day, add_current_prices
@@ -162,14 +162,20 @@ def get_reverse_splits():
         
         unique_splits.append(latest_split)
 
+    check_splits = get_split_details(check_splits)
+
     # Filter for splits from today onward
     today = next_market_day()
     upcoming_splits = [
         split for split in unique_splits
         if datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
     ]
+    checked_splits = [
+        split for split in check_splits
+        if datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
+    ]
     logging.info(f"Found {len([split for split in upcoming_splits if split['article_link']])} upcoming splits with article links with {len(upcoming_splits)} total upcoming splits")
-    return upcoming_splits
+    return upcoming_splits, checked_splits
 
 
 def send_message(splits):
@@ -370,18 +376,24 @@ def send_message(splits):
 def main():
     """Main function to run the reverse split checker."""
     logging.info("Starting reverse split check")
-    splits = get_reverse_splits()
+    splits, pre_checked_splits = get_reverse_splits()
     logging.info(f"Found {len(splits)} upcoming reverse splits")
 
     # Add current stock prices and remove OTC stocks
     if splits:
         splits = add_current_prices(splits)
+
+    if pre_checked_splits:
+        pre_checked_splits = add_current_prices(pre_checked_splits)
     
     # Check if stocks will round up fractional shares
     if splits:
         logging.info("Checking fractional shares handling with Gemini API")
         splits = check_roundup(splits)
         logging.info(splits)
+    if pre_checked_splits and splits:
+        splits += pre_checked_splits
+
     send_message(splits)
     logging.info("Reverse split check completed")
 

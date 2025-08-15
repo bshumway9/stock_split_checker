@@ -245,3 +245,195 @@ def check_roundup(splits):
 
     splits.sort(key=sort_key)
     return splits
+
+
+
+def get_split_details(splits):
+    """
+    For each split, use Gemini API with grounding to get details:
+    - ratio
+    - effective_date
+    - fractional (how fractional shares are handled)
+    - is_reverse
+    - article_link (used for grounding)
+    Returns a list of dicts for each stock (excluding symbol and article_link in output schema).
+    """
+    client = configure_gemini()
+    if not client:
+        logging.warning("Gemini API not configured, skipping split details check")
+        return []
+
+    google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
+    url_context = genai.types.Tool(url_context=genai.types.UrlContext())
+    tools = [google_search, url_context]
+
+    results = []
+    for split in splits:
+        symbol = split.get('symbol')
+        article_link = split.get('article_link', [])
+        if not symbol:
+            continue
+
+        config = genai.types.GenerateContentConfig(
+            tools=tools,
+            temperature=0.2,
+            top_k=40,
+            top_p=0.95,
+        )
+
+        max_attempts = 3
+        attempt = 0
+        extracted = {
+            'symbol': symbol,
+            'ratio': None,
+            'effective_date': None,
+            'fractional': None,
+            'is_reverse': None,
+            'article_link': article_link
+        }
+        last_error = None
+        import re, json
+        while attempt < max_attempts:
+            try:
+                article_info = ""
+                if article_link and len(article_link) > 0:
+                    if len(article_link) == 1:
+                        article_info = f"\nAdditionally, please check this specific article about the split: {article_link[0]}"
+                    else:
+                        article_links_text = "\n".join([f"- {link}" for link in article_link])
+                        article_info = f"\nAdditionally, please check these specific articles about the split:\n{article_links_text}"
+
+                prompt = f"""
+                Search for factual information about the stock split for {symbol}.
+                Please extract and return the following information if available:
+                - The split ratio (e.g. 1-for-10, 80-for-1, 1-for-5)
+                - The effective date of the split (format YYYY-MM-DD)
+                - Whether this is a reverse split (True/False)
+                - How fractional shares will be handled
+                Use the latest SEC filings, press releases, investor relations, and the following articles for grounding:{article_info}
+
+                For fractional, respond with ONLY one of these exact phrases:
+                "ROUND_UP" - if they'll certainly round up to nearest whole share
+                "CASH_IN_LIEU" - if they'll certainly pay cash for fractional shares
+                "ROUND_DOWN" - if they'll certainly round down
+                "THRESHOLD_ROUND_UP" - if they'll certainly round up only if fractional shares exceed a certain threshold
+                "OTHER/NOT_ENOUGH_INFO" - for other methods or uncertainty
+
+                Respond in the following JSON format:
+                {{
+                    "ratio": "<split ratio>",
+                    "effective_date": "<effective date>",
+                    "is_reverse": <true/false>,
+                    "fractional": "<one of the above phrases>"
+                }}
+                If any information is not found, use "Not found" or false for is_reverse.
+                """
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                    config=config
+                )
+                # Extract text from Gemini response
+                response_text = None
+                if hasattr(response, "parts") and response.parts:
+                    response_text = getattr(response.parts[0], "text", None)
+                elif hasattr(response, "candidates") and response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, "content") and hasattr(candidate.content, "parts") and candidate.content.parts:
+                        response_text = getattr(candidate.content.parts[0], "text", None)
+                if not response_text:
+                    response_text = str(response)
+
+                # Remove markdown code block formatting
+                code_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
+                if code_match:
+                    json_str = code_match.group(1)
+                else:
+                    # Fallback: extract first {...} block
+                    brace_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+                    json_str = brace_match.group(0) if brace_match else None
+
+                if json_str:
+                    try:
+                        data = json.loads(json_str)
+                        logging.info(f"Gemini API response for {symbol}: {data}")
+                        # Ratio formatting: convert e.g. "80-for-1" or "1-for-5" to "80->1" or "1->5"
+                        raw_ratio = data.get('ratio', None)
+                        is_reverse = data.get('is_reverse', None)
+                        if raw_ratio and raw_ratio != "Not found":
+                            ratio_match = re.match(r"(\d+)[- ]*for[- ]*(\d+)", raw_ratio)
+                            if ratio_match:
+                                left = ratio_match.group(1)
+                                right = ratio_match.group(2)
+                                if is_reverse is True or (isinstance(is_reverse, str) and is_reverse.lower() == 'true'):
+                                    # Reverse split: always X->1
+                                    extracted['ratio'] = f"{max(int(left), int(right))}->{min(int(left), int(right))}"
+                                else:
+                                    # Forward split: always 1->Y
+                                    extracted['ratio'] = f"{min(int(left), int(right))}->{max(int(left), int(right))}"
+                            else:
+                                extracted['ratio'] = raw_ratio.replace("for", "->").replace("-", "->")
+                        if not extracted['ratio'] and raw_ratio:
+                            extracted['ratio'] = raw_ratio
+
+                        # Date formatting: try to parse and format as YYYY-MM-DD
+                        raw_date = data.get('effective_date', None)
+                        if raw_date and raw_date != "Not found":
+                            date_match = re.search(r"(\d{4})[-/](\d{2})[-/](\d{2})", raw_date)
+                            if date_match:
+                                extracted['effective_date'] = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}"
+                            else:
+                                extracted['effective_date'] = raw_date
+                        if not extracted['effective_date'] and raw_date:
+                            extracted['effective_date'] = raw_date
+
+                        # is_reverse
+                        is_reverse = data.get('is_reverse', None)
+                        if isinstance(is_reverse, bool):
+                            extracted['is_reverse'] = is_reverse
+                        elif isinstance(is_reverse, str):
+                            extracted['is_reverse'] = is_reverse.lower() == 'true'
+
+                        # Fractional handling (same logic as check_roundup)
+                        result = data.get('fractional', None)
+                        if result:
+                            if "ROUND_UP" in result:
+                                extracted['fractional'] = "Rounded up to nearest whole share"
+                            elif "CASH_IN_LIEU" in result:
+                                extracted['fractional'] = "Cash payment for fractional shares"
+                            elif "ROUND_DOWN" in result:
+                                extracted['fractional'] = "Rounded down to nearest whole share"
+                            elif "THRESHOLD_ROUND_UP" in result:
+                                extracted['fractional'] = "Rounded up if fractional shares exceed a certain threshold"
+                            else:
+                                extracted['fractional'] = "Not enough information"
+                        if not extracted['fractional'] and result:
+                            extracted['fractional'] = result
+                    except Exception as e:
+                        last_error = e
+                        logging.info(f"Error parsing JSON response for {symbol}: {e}")
+            except Exception as e:
+                last_error = e
+                logging.info(f"Error occurred for {symbol}: {e}")
+            attempt += 1
+            # If any field is still missing, try again and merge
+            if attempt < max_attempts and (not extracted['ratio'] or not extracted['effective_date'] or not extracted['fractional'] or extracted['ratio'] == 'Not found' or extracted['effective_date'] == 'Not found' or extracted['fractional'] == 'Not found'):
+                time.sleep(2)
+            else:
+                break
+
+        # Fill any missing fields with 'Not found' for output
+        for k in ['ratio', 'effective_date', 'fractional', 'is_reverse']:
+            if extracted[k] is None:
+                extracted[k] = 'Not found'
+        results.append(extracted)
+
+    for split in results:
+        if split['is_reverse'] == False:
+            logging.info(f"Skipping non-reverse split: {split['symbol']} on {split['effective_date']}")
+            results.remove(split)
+        if split['fractional'] in ['Cash payment for fractional shares', 'Rounded down to nearest whole share']:
+            logging.info(f"Skipping split with cash in lieu or rounding down: {split['symbol']} on {split['effective_date']}")
+            results.remove(split)
+    return results
