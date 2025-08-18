@@ -10,4 +10,4 @@
 
 # Empty line required at end of crontab file
 
-@reboot cd /app && /usr/local/bin/python check_missed_run.py >> /var/log/cron.log 2>&1
+@reboot sleep 30 && cd /app && /usr/local/bin/python check_missed_run.py >> /var/log/cron.log 2>&1

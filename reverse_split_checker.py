@@ -168,11 +168,17 @@ def get_reverse_splits():
     today = next_market_day()
     upcoming_splits = [
         split for split in unique_splits
-        if datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
+        if (
+            split['effective_date'].lower() == "unknown"
+            or datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
+        )
     ]
     checked_splits = [
         split for split in check_splits
-        if datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
+        if (
+            split['effective_date'].lower() == "unknown"
+            or datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
+        )
     ]
     logging.info(f"Found {len([split for split in upcoming_splits if split['article_link']])} upcoming splits with article links with {len(upcoming_splits)} total upcoming splits")
     return upcoming_splits, checked_splits
@@ -237,8 +243,11 @@ def send_message(splits):
                             price_display = ratio
                         
                         body += f"{emoji} {split['symbol']}   {price_display}\n"
-                    prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                    body += f"(Last day to buy: {prev_market_day})\n\n"
+                        if date.lower() != "unknown":
+                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+                        else:
+                            prev_market_day = "Unknown"
+                        body += f"(Last day to buy: {prev_market_day})\n\n"
                 body += "\n"
             # Buy ? shares section  
             if buy_threshold:
@@ -273,8 +282,11 @@ def send_message(splits):
                             price_display = ratio
                         
                         body += f"{emoji} {split['symbol']}   {price_display}\n"
-                    prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                    body += f"(Last day to buy: {prev_market_day})\n\n"
+                        if date.lower() != "unknown":
+                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+                        else:
+                            prev_market_day = "Unknown"
+                        body += f"(Last day to buy: {prev_market_day})\n\n"
                 body += "\n"
             
             # Check Rounding section
@@ -310,8 +322,11 @@ def send_message(splits):
                             price_display = ratio
                         
                         body += f"{emoji} {split['symbol']}   {price_display}\n"
-                    prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                    body += f"(Last day to buy: {prev_market_day})\n\n"
+                        if date.lower() != "unknown":
+                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+                        else:
+                            prev_market_day = "Unknown"
+                        body += f"(Last day to buy: {prev_market_day})\n\n"
                 body += "\n"
 
         # Try Discord first, fallback to email if Discord fails or is not configured

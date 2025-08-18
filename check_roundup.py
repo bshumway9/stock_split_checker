@@ -306,28 +306,30 @@ def get_split_details(splits):
                 prompt = f"""
                 Search for factual information about the stock split for {symbol}.
                 Please extract and return the following information if available:
-                - The split ratio (e.g. 1-for-10, 80-for-1, 1-for-5)
+                - The split ratio (e.g. "10->1", "80->1", "1->5")
                 - The effective date of the split (format YYYY-MM-DD)
                 - Whether this is a reverse split (True/False)
                 - How fractional shares will be handled
                 Use the latest SEC filings, press releases, investor relations, and the following articles for grounding:{article_info}
 
-                For fractional, respond with ONLY one of these exact phrases:
-                "ROUND_UP" - if they'll certainly round up to nearest whole share
-                "CASH_IN_LIEU" - if they'll certainly pay cash for fractional shares
-                "ROUND_DOWN" - if they'll certainly round down
-                "THRESHOLD_ROUND_UP" - if they'll certainly round up only if fractional shares exceed a certain threshold
-                "OTHER/NOT_ENOUGH_INFO" - for other methods or uncertainty
+                    For the split ratio, reply ONLY with the ratio in the format "X->Y" (e.g., "5->1"). Do not include any extra words, ranges, or explanations. If the ratio cannot be determined, reply with "unknown".
 
-                Respond in the following JSON format:
-                {{
-                    "ratio": "<split ratio>",
-                    "effective_date": "<effective date>",
-                    "is_reverse": <true/false>,
-                    "fractional": "<one of the above phrases>"
-                }}
-                If any information is not found, use "Not found" or false for is_reverse.
-                """
+                    For fractional, respond with ONLY one of these exact phrases:
+                    "ROUND_UP" - if they'll certainly round up to nearest whole share
+                    "CASH_IN_LIEU" - if they'll certainly pay cash for fractional shares
+                    "ROUND_DOWN" - if they'll certainly round down
+                    "THRESHOLD_ROUND_UP" - if they'll certainly round up only if fractional shares exceed a certain threshold
+                    "OTHER/NOT_ENOUGH_INFO" - for other methods or uncertainty
+
+                    Respond in the following JSON format:
+                    {{
+                        "ratio": "<split ratio in X->Y format>",
+                        "effective_date": "<effective date>",
+                        "is_reverse": <true/false>,
+                        "fractional": "<one of the above phrases>"
+                    }}
+                    If any information is not found, use "unknown" or false for is_reverse.
+                    """
 
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
@@ -361,7 +363,7 @@ def get_split_details(splits):
                         # Ratio formatting: convert e.g. "80-for-1" or "1-for-5" to "80->1" or "1->5"
                         raw_ratio = data.get('ratio', None)
                         is_reverse = data.get('is_reverse', None)
-                        if raw_ratio and raw_ratio != "Not found":
+                        if raw_ratio and raw_ratio != "unknown":
                             ratio_match = re.match(r"(\d+)[- ]*for[- ]*(\d+)", raw_ratio)
                             if ratio_match:
                                 left = ratio_match.group(1)
@@ -379,7 +381,7 @@ def get_split_details(splits):
 
                         # Date formatting: try to parse and format as YYYY-MM-DD
                         raw_date = data.get('effective_date', None)
-                        if raw_date and raw_date != "Not found":
+                        if raw_date and raw_date != "unknown":
                             date_match = re.search(r"(\d{4})[-/](\d{2})[-/](\d{2})", raw_date)
                             if date_match:
                                 extracted['effective_date'] = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}"
@@ -418,15 +420,15 @@ def get_split_details(splits):
                 logging.info(f"Error occurred for {symbol}: {e}")
             attempt += 1
             # If any field is still missing, try again and merge
-            if attempt < max_attempts and (not extracted['ratio'] or not extracted['effective_date'] or not extracted['fractional'] or extracted['ratio'] == 'Not found' or extracted['effective_date'] == 'Not found' or extracted['fractional'] == 'Not found'):
+            if attempt < max_attempts and (not extracted['ratio'] or not extracted['effective_date'] or not extracted['fractional'] or extracted['ratio'] == 'unknown' or extracted['effective_date'] == 'unknown' or extracted['fractional'] == 'unknown'):
                 time.sleep(2)
             else:
                 break
 
-        # Fill any missing fields with 'Not found' for output
+        # Fill any missing fields with 'unknown' for output
         for k in ['ratio', 'effective_date', 'fractional', 'is_reverse']:
             if extracted[k] is None:
-                extracted[k] = 'Not found'
+                extracted[k] = 'unknown'
         results.append(extracted)
 
     for split in results:

@@ -31,9 +31,9 @@ EOF
     echo "Please edit /app/.env with your actual credentials"
 fi
 
-# Run the script once immediately for testing
-echo "Running initial test..."
-cd /app && python reverse_split_checker.py
+# Run the script once immediately for build/start
+echo "Running initial build/start check..."
+cd /app && python check_missed_run.py --build >> /var/log/cron.log 2>&1
 
 # Keep container running and show logs
 echo "Container ready. Monitoring cron logs..."

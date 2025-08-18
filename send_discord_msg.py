@@ -148,7 +148,10 @@ def format_discord_message(splits: list) -> str:
                     price_display = ratio
                 
                 message += f"{emoji} {split['symbol']} - {price_display}\n"
-            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+            if date.lower() != "unknown":
+                prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+            else:
+                prev_market_day = "Unknown"
             message += f"(Last day to buy: {prev_market_day})\n\n"
         message += "```\n\n"
     
@@ -185,7 +188,10 @@ def format_discord_message(splits: list) -> str:
                     price_display = ratio
                 
                 message += f"{emoji} {split['symbol']} - {price_display}\n"
-            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+            if date.lower() != "unknown":
+                prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+            else:
+                prev_market_day = "Unknown"
             message += f"(Last day to buy: {prev_market_day})\n\n"
         message += "```\n\n"
     
@@ -223,7 +229,10 @@ def format_discord_message(splits: list) -> str:
                     price_display = ratio
                 
                 message += f"{emoji} {split['symbol']} - {price_display} [Source: {source}]\n"
-            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+            if date.lower() != "unknown":
+                prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
+            else:
+                prev_market_day = "Unknown"
             message += f"(Last day to buy: {prev_market_day})\n\n"
         message += "```\n\n"
     
