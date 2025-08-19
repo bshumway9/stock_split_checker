@@ -232,17 +232,8 @@ def check_roundup(splits):
                 # Don't overwhelm the API, add a small delay between requests
                 time.sleep(1)
         
-        # Order splits by fractional handling
-    # Order splits by fractional handling
-    # Remove splits where fractional handling is "cash payment for fractional shares" or "rounded down to nearest whole share"
-    splits = [
-        split for split in splits
-        if split.get('fractional', '').lower() not in [
-            "cash payment for fractional shares",
-            "rounded down to nearest whole share"
-        ]
-    ]
-
+    # Keep all splits (including cash in lieu / rounded down) so they can be persisted to the DB
+    # Sort for stability
     splits.sort(key=sort_key)
     return splits
 
@@ -431,11 +422,11 @@ def get_split_details(splits):
                 extracted[k] = 'unknown'
         results.append(extracted)
 
+    # Keep decided fractional outcomes; only drop obvious non-reverse splits
+    filtered = []
     for split in results:
-        if split['is_reverse'] == False:
+        if split['is_reverse'] is False:
             logging.info(f"Skipping non-reverse split: {split['symbol']} on {split['effective_date']}")
-            results.remove(split)
-        if split['fractional'] in ['Cash payment for fractional shares', 'Rounded down to nearest whole share']:
-            logging.info(f"Skipping split with cash in lieu or rounding down: {split['symbol']} on {split['effective_date']}")
-            results.remove(split)
-    return results
+            continue
+        filtered.append(split)
+    return filtered

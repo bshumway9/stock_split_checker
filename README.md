@@ -132,6 +132,39 @@ The Gemini API is used to automatically research how companies handle fractional
 python reverse_split_checker.py
 ```
 
+### Previously Sent Tracking and Querying
+
+This project tracks splits that have already been sent and keeps them available until their execution date passes (or the date is unknown). Two files are created in the host-mounted `logs/` directory:
+
+- `logs/previously_sent_db.json` — a JSON database with full split records, including when they were first sent and last seen
+- `logs/previously_sent.txt` — a human‑readable list of previously sent, still‑buyable items
+
+Emails and Discord messages include a separate "Previously Sent (Still Buyable)" section. The main sections only show new items from the current run to avoid noise.
+
+#### Query the DB from your host
+
+Use the included CLI to query the persisted DB without opening the container:
+
+```bash
+# Show all still-buyable previously sent
+python3 query_sent_db.py --still-buyable
+
+# Filter by symbol
+python3 query_sent_db.py --symbol ABCD
+
+# Filter by effective date or date range
+python3 query_sent_db.py --on 2025-08-20
+python3 query_sent_db.py --from 2025-08-01 --to 2025-08-31
+
+# Get raw JSON output (for piping/automation)
+python3 query_sent_db.py --json --symbol ABCD
+```
+
+Notes:
+- The default DB path is `logs/previously_sent_db.json`. Override with `--db /path/to/db.json` if needed.
+- "Still buyable" means execution date is unknown or on/after today’s next market day.
+- The DB keys are `SYMBOL|EFFECTIVE_DATE`; the stored value includes the full split record under `data`, plus `first_sent` and `last_seen` timestamps.
+
 ### Enable Scheduled Daily Runs
 
 Uncomment the scheduling code at the bottom of `reverse_split_checker.py`:
@@ -162,6 +195,7 @@ python test_nasdaq_scraper.py #(nasdaq doesn't work currently)
 ```
 stock_split_checker/
 ├── reverse_split_checker.py     # Main application entry point
+├── query_sent_db.py             # CLI tool to query previously sent DB
 ├── requirements.txt             # Python dependencies
 ├── .env                        # Environment variables (create this)
 ├── README.md                   # This file
@@ -172,7 +206,9 @@ stock_split_checker/
 ├── helper_functions.py        # Utility functions
 ├── test_*.py                  # Individual scraper test scripts
 ├── stock_split_checker.log    # Application log file
-└── logs/                      # Debug logs and screenshots
+└── logs/                      # Debug logs, screenshots, and persisted data
+   ├── previously_sent_db.json # Full records of previously sent splits (host-visible)
+   └── previously_sent.txt     # Human-readable “Previously Sent (Still Buyable)” list
 ```
 
 ## How It Works

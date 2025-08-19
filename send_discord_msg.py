@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import requests
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from helper_functions import next_market_day, get_random_emoji
 from collections import defaultdict
@@ -84,7 +84,7 @@ async def send_discord_bot_message(bot_token: str, channel_id: str, message: str
         return False
 
 
-def format_discord_message(splits: list) -> str:
+def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = None) -> str:
     """
     Format the splits data for Discord with proper formatting.
     
@@ -94,7 +94,9 @@ def format_discord_message(splits: list) -> str:
     Returns:
         str: Formatted message for Discord
     """
-    if not splits:
+    prev_splits = prev_splits or []
+
+    if not splits and not prev_splits:
         return f"📊 **No splits found today {datetime.now().strftime('%m-%d-%Y')}**"
 
     message = f"🚨 **Upcoming Splits {datetime.now().strftime('%m-%d-%Y')}** 🚨\n\n"
@@ -103,15 +105,36 @@ def format_discord_message(splits: list) -> str:
     buy_1_share = []
     buy_threshold = []
     check_rounding = []
+    prev_buy_1_share = []
+    prev_buy_threshold = []
+    prev_check_rounding = []
     
+    def is_insufficient(frac: str) -> bool:
+        f = (frac or '').strip().lower()
+        return f in ("check rounding policy", "unknown", "not specified", "unspecified", "")
+
     for split in splits:
         fractional = split.get('fractional', '').lower()
+        # Skip decided non-actionable outcomes from display (still persisted in DB)
+        if fractional in ("cash payment for fractional shares", "rounded down to nearest whole share"):
+            continue
         if fractional == "rounded up to nearest whole share":
             buy_1_share.append(split)
         elif fractional == "rounded up if fractional shares exceed a certain threshold":
             buy_threshold.append(split)
         else:
             check_rounding.append(split)
+    for split in prev_splits:
+        fractional = split.get('fractional', '').lower()
+        # Skip decided non-actionable outcomes from display (still persisted in DB)
+        if fractional in ("cash payment for fractional shares", "rounded down to nearest whole share"):
+            continue
+        if fractional == "rounded up to nearest whole share":
+            prev_buy_1_share.append(split)
+        elif fractional == "rounded up if fractional shares exceed a certain threshold":
+            prev_buy_threshold.append(split)
+        else:
+            prev_check_rounding.append(split)
     
     emoji = get_random_emoji()  # Assuming this function returns a random emoji for the message
 
@@ -195,12 +218,13 @@ def format_discord_message(splits: list) -> str:
             message += f"(Last day to buy: {prev_market_day})\n\n"
         message += "```\n\n"
     
-    # Check rounding section
-    if check_rounding:
+    # Check rounding section (combine new + previously sent insufficient info)
+    combined_check_rounding = check_rounding + prev_check_rounding
+    if combined_check_rounding:
         message += "🔍 **Check Rounding Policy** 🔍\n```\n"
         # Group splits by effective_date
         splits_by_date = defaultdict(list)
-        for split in check_rounding:
+        for split in combined_check_rounding:
             splits_by_date[split['effective_date']].append(split)
         # Sort dates
         for date in sorted(splits_by_date.keys()):
@@ -236,14 +260,50 @@ def format_discord_message(splits: list) -> str:
             message += f"(Last day to buy: {prev_market_day})\n\n"
         message += "```\n\n"
     
-    # message += f"📅 **Last updated:** {asyncio.get_event_loop().time()}\n"
+    # Previously Sent section (exclude insufficient info; combined above)
+    prev_non_insufficient = prev_buy_1_share + prev_buy_threshold
+    if prev_non_insufficient:
+        message += "🕓 **Previously Sent (Still Buyable)** 🕓\n```\n"
+
+        # Categorize and group by date similar to above
+        splits_by_date = defaultdict(list)
+        for split in prev_non_insufficient:
+            splits_by_date[split.get('effective_date','Unknown')].append(split)
+        for date_str in sorted(splits_by_date.keys()):
+            for split in splits_by_date[date_str]:
+                ratio = split.get('ratio', 'N/A')
+                current_price = split.get('current_price', None)
+                try:
+                    if current_price and ratio != 'N/A':
+                        if '->' in ratio:
+                            parts = ratio.split('->')
+                            if len(parts) == 2:
+                                multiplier = float(parts[1]) / float(parts[0])
+                                projected_price = current_price * float(parts[0])
+                                price_display = f"${current_price}--->${projected_price:.2f}"
+                            else:
+                                price_display = f"${current_price} ({ratio})"
+                        else:
+                            price_display = f"${current_price} ({ratio})"
+                    else:
+                        price_display = ratio
+                except (ValueError, ZeroDivisionError):
+                    price_display = f"${current_price} ({ratio})" if current_price else ratio
+                message += f"{get_random_emoji()} {split.get('symbol','?')} - {price_display}\n"
+            if date_str.lower() != "unknown":
+                prev_day = next_market_day(datetime.strptime(date_str, '%Y-%m-%d').date(), previous=True)
+            else:
+                prev_day = "Unknown"
+            message += f"(Last day to buy: {prev_day})\n\n"
+        message += "```\n\n"
+
+    # message += f"📅 **Last updated:** {datetime.now().strftime('%H:%M:%S')}\n"
     # message += "⚠️ **Always verify split details before trading!**"
-    
     return message
 
 
 # For backwards compatibility and easy testing
-async def send_discord_message(webhook_url: str, splits: list, username: str = "Stock Split Bot") -> bool:
+async def send_discord_message(webhook_url: str, splits: list, username: str = "Stock Split Bot", prev_splits: Optional[List[dict]] = None) -> bool:
     """
     Convenience function to format and send Discord message.
     
@@ -256,7 +316,7 @@ async def send_discord_message(webhook_url: str, splits: list, username: str = "
         bool: True if successful, False otherwise
     """
     try:
-        formatted_message = format_discord_message(splits)
+        formatted_message = format_discord_message(splits, prev_splits=prev_splits)
         return send_discord_webhook(webhook_url, formatted_message, username)
     except Exception as e:
         logging.error(f"Error in send_discord_message: {e}")
