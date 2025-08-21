@@ -755,7 +755,7 @@ def main():
         elif rec is None:
             # Safety: if somehow not in DB but we have a decided result, add it now
             frac = (s.get('fractional') or '').strip().lower()
-            if frac and frac not in ("check rounding policy", "unknown", "not specified", "unspecified", ""):
+            if frac and frac not in ("check rounding policy", "unknown", "not specified", "unspecified", "not enough information", ""):
                 db[key] = {
                     'data': s,
                     'first_sent': now_str,

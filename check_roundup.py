@@ -161,15 +161,15 @@ def check_roundup(splits):
             else:
                 time.sleep(1)
 
-        # Update the split information based on response
-        if "ROUND_UP" in result:
-            splits[i]['fractional'] = "Rounded up to nearest whole share"
-        elif "CASH_IN_LIEU" in result:
-            splits[i]['fractional'] = "Cash payment for fractional shares"
-        elif "ROUND_DOWN" in result:
-            splits[i]['fractional'] = "Rounded down to nearest whole share"
-        elif "THRESHOLD_ROUND_UP" in result:
+        # Update the split information based on response (exact matches; check THRESHOLD before ROUND_UP)
+        if result == "THRESHOLD_ROUND_UP":
             splits[i]['fractional'] = "Rounded up if fractional shares exceed a certain threshold"
+        elif result == "ROUND_UP":
+            splits[i]['fractional'] = "Rounded up to nearest whole share"
+        elif result == "CASH_IN_LIEU":
+            splits[i]['fractional'] = "Cash payment for fractional shares"
+        elif result == "ROUND_DOWN":
+            splits[i]['fractional'] = "Rounded down to nearest whole share"
         else:
             splits[i]['fractional'] = "Not enough information"
             if last_error:
@@ -217,15 +217,15 @@ def check_roundup(splits):
             # except Exception as e:
             #     logging.warning(f"Could not extract Gemini grounding URIs for {symbol}: {e}")
             
-            # Update the split information based on response
-            if "ROUND_UP" in result:
-                splits[i]['fractional'] = "Rounded up to nearest whole share"
-            elif "CASH_IN_LIEU" in result:
-                splits[i]['fractional'] = "Cash payment for fractional shares"
-            elif "ROUND_DOWN" in result:
-                splits[i]['fractional'] = "Rounded down to nearest whole share"
-            elif "THRESHOLD_ROUND_UP" in result:
+            # Update the split information based on response (exact matches; check THRESHOLD before ROUND_UP)
+            if result == "THRESHOLD_ROUND_UP":
                 splits[i]['fractional'] = "Rounded up if fractional shares exceed a certain threshold"
+            elif result == "ROUND_UP":
+                splits[i]['fractional'] = "Rounded up to nearest whole share"
+            elif result == "CASH_IN_LIEU":
+                splits[i]['fractional'] = "Cash payment for fractional shares"
+            elif result == "ROUND_DOWN":
+                splits[i]['fractional'] = "Rounded down to nearest whole share"
             else:
                 splits[i]['fractional'] = "Not enough information"
 
@@ -388,17 +388,17 @@ def get_split_details(splits):
                         elif isinstance(is_reverse, str):
                             extracted['is_reverse'] = is_reverse.lower() == 'true'
 
-                        # Fractional handling (same logic as check_roundup)
+                        # Fractional handling (same logic as check_roundup, exact matches)
                         result = data.get('fractional', None)
                         if result:
-                            if "ROUND_UP" in result:
-                                extracted['fractional'] = "Rounded up to nearest whole share"
-                            elif "CASH_IN_LIEU" in result:
-                                extracted['fractional'] = "Cash payment for fractional shares"
-                            elif "ROUND_DOWN" in result:
-                                extracted['fractional'] = "Rounded down to nearest whole share"
-                            elif "THRESHOLD_ROUND_UP" in result:
+                            if result == "THRESHOLD_ROUND_UP":
                                 extracted['fractional'] = "Rounded up if fractional shares exceed a certain threshold"
+                            elif result == "ROUND_UP":
+                                extracted['fractional'] = "Rounded up to nearest whole share"
+                            elif result == "CASH_IN_LIEU":
+                                extracted['fractional'] = "Cash payment for fractional shares"
+                            elif result == "ROUND_DOWN":
+                                extracted['fractional'] = "Rounded down to nearest whole share"
                             else:
                                 extracted['fractional'] = "Not enough information"
                         if not extracted['fractional'] and result:
