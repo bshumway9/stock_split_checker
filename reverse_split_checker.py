@@ -1,17 +1,15 @@
 
 import schedule
-import time
-from datetime import datetime, date
+from datetime import datetime
 import logging
 import asyncio
-from send_txt_msg import send_txt, send_txts, send_email
-from send_discord_msg import send_discord_message, send_discord_webhook, format_discord_message
+from send_txt_msg import send_txt
+from send_discord_msg import send_discord_buy_message, send_discord_message
 from dotenv import dotenv_values
-from check_roundup import check_roundup, get_split_details
-from table_scrapers import scrape_yahoo_finance_selenium, scrape_hedge_follow, scrape_nasdaq, scrape_stock_titan
-from site_scrapers import scrape_stocktitan, scrape_sec_edgar
-from helper_functions import get_random_emoji, next_market_day, add_current_prices
-from collections import defaultdict
+from check_roundup import check_roundup, get_split_details, get_threshold_minimum_shares
+from send_email_msg import send_email_message
+from table_scrapers import scrape_yahoo_finance_selenium, scrape_hedge_follow, scrape_stock_titan
+from helper_functions import next_market_day, add_current_prices, market_is_open, get_side_from_ratio
 import time as pytime
 import json
 import os
@@ -236,6 +234,7 @@ def get_reverse_splits():
             or datetime.strptime(split['effective_date'], '%Y-%m-%d').date() >= today
         )
     ]
+
     logging.info(f"Found {len([split for split in upcoming_splits if split['article_link']])} upcoming splits with article links with {len(upcoming_splits)} total upcoming splits")
     return upcoming_splits, checked_splits
 
@@ -330,208 +329,6 @@ def send_message(splits, prev_splits=None):
     """Send text message with reverse split data."""
     try:
         prev_splits = prev_splits or []
-        # Format text message content
-        if not splits and not prev_splits:
-            body = "No upcoming reverse stock splits found for today."
-        else:
-            # Categorize splits by fractional share handling
-            buy_1_share = []
-            buy_threshold = []
-            check_rounding = []
-            prev_buy_1_share = []
-            prev_buy_threshold = []
-            prev_check_rounding = []
-
-            def _is_insufficient(frac: str) -> bool:
-                f = (frac or '').strip().lower()
-                return f in ("check rounding policy", "unknown", "not specified", "unspecified", "")
-            
-            for split in splits:
-                fractional = split.get('fractional', '').lower()
-                # Skip decided non-actionable outcomes from display
-                if fractional in ("cash payment for fractional shares", "rounded down to nearest whole share"):
-                    continue
-                if fractional == "rounded up to nearest whole share":
-                    buy_1_share.append(split)
-                elif fractional == "rounded up if fractional shares exceed a certain threshold":
-                    buy_threshold.append(split)
-                else:
-                    check_rounding.append(split)
-            for split in prev_splits:
-                fractional = split.get('fractional', '').lower()
-                # Skip decided non-actionable outcomes from display
-                if fractional in ("cash payment for fractional shares", "rounded down to nearest whole share"):
-                    continue
-                if fractional == "rounded up to nearest whole share":
-                    prev_buy_1_share.append(split)
-                elif fractional == "rounded up if fractional shares exceed a certain threshold":
-                    prev_buy_threshold.append(split)
-                else:
-                    prev_check_rounding.append(split)
-            
-            body = ""
-
-            emoji = get_random_emoji()
-            # Buy 1 share section
-            if buy_1_share:
-                # Get the date from the first split (assuming all are same date)
-                date = buy_1_share[0]['effective_date']
-                body += f"Buy 1 share\n\n"
-                # Group splits by effective_date
-                splits_by_date = defaultdict(list)
-                for split in buy_1_share:
-                    splits_by_date[split['effective_date']].append(split)
-                # Sort dates
-                for date in sorted(splits_by_date.keys()):
-                    for split in splits_by_date[date]:
-                        ratio = split.get('ratio', 'N/A')
-                        current_price = split.get('current_price', None)
-                        
-                        # Format price display if we have both price and ratio
-                        if current_price and ratio != 'N/A':
-                            try:
-                                # Extract the ratio number (e.g., "1:10" -> 10)
-                                if '->' in ratio:
-                                    ratio_parts = ratio.split('->')
-                                    if len(ratio_parts) == 2:
-                                        multiplier = float(ratio_parts[0]) / float(ratio_parts[1])
-                                        projected_price = current_price * multiplier
-                                        price_display = f"${current_price}--->${projected_price:.2f}"
-                                    else:
-                                        price_display = f"${current_price} ({ratio})"
-                                else:
-                                    price_display = f"${current_price} ({ratio})"
-                            except (ValueError, ZeroDivisionError):
-                                price_display = f"${current_price} ({ratio})"
-                        else:
-                            price_display = ratio
-                        
-                        body += f"{emoji} {split['symbol']}   {price_display}\n"
-                        if date.lower() != "unknown":
-                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                        else:
-                            prev_market_day = "Unknown"
-                        body += f"(Last day to buy: {prev_market_day})\n\n"
-                body += "\n"
-            # Buy ? shares section  
-            if buy_threshold:
-                body += f"Buy ? shares\n\n"
-                # Group splits by effective_date
-                splits_by_date = defaultdict(list)
-                for split in buy_threshold:
-                    splits_by_date[split['effective_date']].append(split)
-                # Sort dates
-                for date in sorted(splits_by_date.keys()):
-                    for split in splits_by_date[date]:
-                        ratio = split.get('ratio', 'N/A')
-                        current_price = split.get('current_price', None)
-                        
-                        # Format price display if we have both price and ratio
-                        if current_price and ratio != 'N/A':
-                            try:
-                                # Extract the ratio number (e.g., "1:10" -> 10)
-                                if '->' in ratio:
-                                    ratio_parts = ratio.split('->')
-                                    if len(ratio_parts) == 2:
-                                        multiplier = float(ratio_parts[0]) / float(ratio_parts[1])
-                                        projected_price = current_price * multiplier
-                                        price_display = f"${current_price}--->${projected_price:.2f}"
-                                    else:
-                                        price_display = f"${current_price} ({ratio})"
-                                else:
-                                    price_display = f"${current_price} ({ratio})"
-                            except (ValueError, ZeroDivisionError):
-                                price_display = f"${current_price} ({ratio})"
-                        else:
-                            price_display = ratio
-                        
-                        body += f"{emoji} {split['symbol']}   {price_display}\n"
-                        if date.lower() != "unknown":
-                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                        else:
-                            prev_market_day = "Unknown"
-                        body += f"(Last day to buy: {prev_market_day})\n\n"
-                body += "\n"
-            
-            # Check Rounding section (combine new + previously sent insufficient info)
-            combined_check_rounding = check_rounding + prev_check_rounding
-            if combined_check_rounding:
-                body += f"Check Rounding\n\n"
-                # Group splits by effective_date
-                splits_by_date = defaultdict(list)
-                for split in combined_check_rounding:
-                    splits_by_date[split['effective_date']].append(split)
-                # Sort dates
-                for date in sorted(splits_by_date.keys()):
-                    for split in splits_by_date[date]:
-                        ratio = split.get('ratio', 'N/A')
-                        current_price = split.get('current_price', None)
-                        
-                        # Format price display if we have both price and ratio
-                        if current_price and ratio != 'N/A':
-                            try:
-                                # Extract the ratio number (e.g., "1:10" -> 10)
-                                if '->' in ratio:
-                                    ratio_parts = ratio.split('->')
-                                    if len(ratio_parts) == 2:
-                                        multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * float(ratio_parts[0])
-                                        price_display = f"${current_price}--->${projected_price:.2f}"
-                                    else:
-                                        price_display = f"${current_price} ({ratio})"
-                                else:
-                                    price_display = f"${current_price} ({ratio})"
-                            except (ValueError, ZeroDivisionError):
-                                price_display = f"${current_price} ({ratio})"
-                        else:
-                            price_display = ratio
-                        
-                        body += f"{emoji} {split['symbol']}   {price_display}\n"
-                        if date.lower() != "unknown":
-                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                        else:
-                            prev_market_day = "Unknown"
-                        body += f"(Last day to buy: {prev_market_day})\n\n"
-                body += "\n"
-
-            # Previously sent section (exclude insufficient info, which is already shown above)
-            prev_non_insufficient = prev_buy_1_share + prev_buy_threshold
-            if prev_non_insufficient:
-                body += f"Previously Sent (Still Buyable)\n\n"
-                # Group splits by effective_date
-                splits_by_date = defaultdict(list)
-                for split in prev_non_insufficient:
-                    splits_by_date[split['effective_date']].append(split)
-                # Sort dates
-                for date in sorted(splits_by_date.keys()):
-                    for split in splits_by_date[date]:
-                        ratio = split.get('ratio', 'N/A')
-                        current_price = split.get('current_price', None)
-                        
-                        # Format price display if we have both price and ratio
-                        if current_price and ratio != 'N/A':
-                            try:
-                                if '->' in ratio:
-                                    ratio_parts = ratio.split('->')
-                                    if len(ratio_parts) == 2:
-                                        multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                        projected_price = current_price * float(ratio_parts[0])
-                                        price_display = f"${current_price}--->${projected_price:.2f}"
-                                    else:
-                                        price_display = f"${current_price} ({ratio})"
-                                else:
-                                    price_display = f"${current_price} ({ratio})"
-                            except (ValueError, ZeroDivisionError):
-                                price_display = f"${current_price} ({ratio})"
-                        else:
-                            price_display = ratio
-                        body += f"{emoji} {split['symbol']}   {price_display}\n"
-                        if date.lower() != "unknown":
-                            prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
-                        else:
-                            prev_market_day = "Unknown"
-                        body += f"(Last day to buy: {prev_market_day})\n\n"
-                body += "\n"
 
         # Try Discord first, fallback to email if Discord fails or is not configured
         discord_webhook = env.get("DISCORD_WEBHOOK_URL", "")
@@ -554,22 +351,12 @@ def send_message(splits, prev_splits=None):
 
         # Send email only if Discord wasn't sent or if no Discord webhook is configured
         if not discord_sent:
-            _email = env.get("SENDER_EMAIL", "")
-            _pword = env.get("GMAIL_KEY", "")
-            _msg = body
-            _subj = "Upcoming Reverse Stock Splits"
-            
-            # Only send email if email credentials are provided
-            if _email and _pword:
-                try:
-                    coro = send_email(_email, _subj, _msg, _email, _pword)
-                    asyncio.run(coro)
-                    logging.info("Email sent successfully")
-                    email_sent = True
-                except Exception as e:
-                    logging.error(f"Error sending email: {e} - will fallback to SMS")
+            logging.info("Sending email message")
+            email_sent = send_email_message(splits, prev_splits=prev_splits)
+            if email_sent:
+                logging.info("Email sent successfully")
             else:
-                logging.warning("No email credentials provided - will try SMS fallback")
+                logging.error("Failed to send email - will fallback to SMS")
 
         # Final fallback: SMS if both Discord and email failed
         if not discord_sent and not email_sent:
@@ -591,11 +378,16 @@ def send_message(splits, prev_splits=None):
 
     except Exception as e:
         logging.info("Error sending messages: {}".format(e))
-        logging.info("body: {}".format(body))
         logging.error(f"Error sending messages: {e}")
 
 def main():
     """Main function to run the reverse split checker."""
+    # check if market is open today
+    is_open = market_is_open(datetime.now().strftime("%Y-%m-%d"))
+    if not is_open:
+        logging.warning("Market is closed today, purchasing will be skipped.")
+    else:
+        logging.info("Market is open today, purchases may be executed.")
     logging.info("Starting reverse split check")
     splits, pre_checked_splits = get_reverse_splits()
     logging.info(f"Found {len(splits)} upcoming reverse splits")
@@ -669,6 +461,7 @@ def main():
                     if isinstance(existing_links, str):
                         existing_links = [existing_links]
                     rec_data['article_link'] = list({*existing_links, *new_links})
+                now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 # Upgrade fractional decision if DB is missing/insufficient and scraped has decided
                 def _is_insufficient(frac: str) -> bool:
                     f = (frac or '').strip().lower()
@@ -714,6 +507,16 @@ def main():
         if to_process:
             logging.info("Checking fractional shares handling with Gemini API for new items (subset)")
             to_process = check_roundup(to_process)
+
+        for split in to_process:
+            if (split.get('fractional') or '').strip().lower() == "rounded up if fractional shares exceed a certain threshold":
+                larger_side = get_side_from_ratio(split, side='max')
+                min_shares, explanation = get_threshold_minimum_shares(
+                    split.get('symbol'), larger_side, split.get('article_link')
+                )
+                split['min_shares_for_roundup'] = min_shares
+                split['threshold_explanation'] = explanation
+
         new_splits = already_processed + to_process
 
     # Clean DB: keep unknown dates and anything from the last week of market days (supports legacy and new schema)
@@ -770,6 +573,18 @@ def main():
     # Send messages including previously sent section; main sections show only new items
     send_message(new_splits, prev_splits=prev_splits)
     logging.info("Reverse split check completed")
+    if is_open:
+        discord_buy_webhook = env.get("DISCORD_BUY_WEBHOOK_URL", "")
+        if not discord_buy_webhook:
+            logging.warning("Discord buy webhook URL is not set.")
+            return
+        logging.info("Market is open today, attempting purchases now.")
+        try:
+            buy_success = asyncio.run(send_discord_buy_message(discord_buy_webhook, new_splits, dry_run=True))
+            if buy_success:
+                logging.info("Discord buy message sent successfully")
+        except Exception as e:
+            logging.error(f"Error sending Discord buy message FAILED PURCHASES: {e}")
 
 def schedule_task():
     """Schedule the task to run daily at 8:00 AM on weekdays."""

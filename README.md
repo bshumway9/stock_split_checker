@@ -1,3 +1,4 @@
+
 # Discord Webhook Setup
 
 To enable Discord notifications, you must set up a Discord webhook and provide its URL as an environment variable.
@@ -10,40 +11,91 @@ To enable Discord notifications, you must set up a Discord webhook and provide i
 
 ```
 DISCORD_WEBHOOK_URL=<your_discord_webhook_url>
+DISCORD_BUY_WEBHOOK_URL=<your_discord_buy_webhook_url>
 ```
 
 **Example .env entry:**
 ```
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz
+DISCORD_BUY_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz
 ```
 
-The application will use this variable to send notifications to your Discord channel.
+The application will use these variables to send notifications to your Discord channel.
+
+## Discord Buy Message
+
+When actionable splits are found, the application sends a Discord "Buy" message using the `send_discord_buy_message` function. This message is sent to the webhook specified by `DISCORD_BUY_WEBHOOK_URL` and contains a command for buying 1 share of each qualifying stock.
+In reverse_split_checker change dry_run=True to dry_run=False when ready to actually buy.
+
+**Message Format:**
+
+```
+!rsa buy 1 SYMBOL1,SYMBOL2,SYMBOL3 all true
+```
+
+- `SYMBOL1,SYMBOL2,...` are the stock symbols that round up fractional shares to a whole share ("Buy 1 Share" category).
+- The final `true` or `false` indicates whether the message is a dry run (test) or a live command.
+
+**Requirements:**
+- You must set `DISCORD_BUY_WEBHOOK_URL` in your `.env` file to enable buy messages.
+- The bot username defaults to "Stock Split Bot" but can be customized.
+
+**How it works:**
+- The function `send_discord_buy_message(webhook_url, splits, username, dry_run)` is called with the webhook URL, a list of actionable splits, and optional username/dry_run flag.
+- Only splits where `fractional` is "rounded up to nearest whole share" are included in the buy message.
 
 # Stock Split Checker
 
 A Python application that monitors upcoming reverse stock splits from multiple financial data sources and automatically sends notifications via email or SMS. The application helps identify stocks that round up fractional shares during reverse splits, which can be profitable for investors holding small positions.
 
+
 ## Features
 
 - **Multi-Source Data Aggregation**: Scrapes stock split data from:
-  - Yahoo Finance (primary source)
-  - HedgeFollow.com (primary source)
-  - Nasdaq.com (optional) (currently unavailable)
-  - SEC Edgar filings (optional) (currently unavailable)
-  - StockTitan.net (optional) (currently unavailable)
+   - Yahoo Finance (primary source)
+   - HedgeFollow.com (primary source)
+   - Nasdaq.com (optional) (currently unavailable)
+   - SEC Edgar filings (optional) (currently unavailable)
+   - StockTitan.net (optional) (currently unavailable)
 
-- **AI-Powered Analysis**: Uses Google Gemini API to automatically research and categorize how companies handle fractional shares during reverse splits
+- **AI-Powered Analysis**: Uses Google Gemini API to automatically research and categorize how companies handle fractional shares during reverse splits, and extract split details and thresholds.
+
+- **Gemini-Powered Functions**:
+   - `get_split_details`: Given only `symbol` and `article_link`, uses Gemini to extract:
+      - Split ratio (always formatted as `X->Y`, e.g. `100->1` for reverse, `1->5` for forward)
+      - Effective date (always formatted as `YYYY-MM-DD`)
+      - Whether the split is a reverse split (`is_reverse`)
+      - Fractional handling (one of: `ROUND_UP`, `CASH_IN_LIEU`, `ROUND_DOWN`, `THRESHOLD_ROUND_UP`, `OTHER/NOT_ENOUGH_INFO`)
+      - Robust parsing and retry logic to ensure accurate extraction from AI responses
+   - `get_threshold_minimum_shares`: Uses Gemini to extract the minimum shares required for rounding up in threshold splits, with retry logic and explanation returned.
 
 - **Smart Categorization**: Organizes reverse splits into three categories:
-  - **Buy 1 Share**: Companies that round up any fractional shares to whole shares
-  - **Buy ? Shares**: Companies that round up only if fractional shares exceed a threshold
-  - **Check Rounding**: Companies with unspecified or other fractional share handling
+   - **Buy 1 Share**: Companies that round up any fractional shares to whole shares
+   - **Buy ? Shares**: Companies that round up only if fractional shares exceed a threshold (uses `get_threshold_minimum_shares` for details)
+   - **Check Rounding**: Companies with unspecified or other fractional share handling
 
 - **Flexible Notifications**: Sends notifications via:
-  - Email (Gmail SMTP)
-  - SMS (via email-to-SMS gateways) (Currently messages are limited in size and will generally be cut off thus losing valuable info)(Use Email)
+   - Email (Gmail SMTP)
+   - SMS (via email-to-SMS gateways) (Currently messages are limited in size and will generally be cut off thus losing valuable info)(Use Email)
 
 - **Automated Scheduling**: Can be configured to run daily checks
+
+## Gemini-Powered Extraction Details
+
+- **Split Ratio Format**: Always returned as `X->Y` (e.g. `100->1` for reverse, `1->5` for forward)
+- **Effective Date Format**: Always returned as `YYYY-MM-DD`
+- **Fractional Handling**: Always one of:
+   - `ROUND_UP` (round up to nearest whole share)
+   - `CASH_IN_LIEU` (pay cash for fractional shares)
+   - `ROUND_DOWN` (round down)
+   - `THRESHOLD_ROUND_UP` (round up only if fractional shares exceed a threshold)
+   - `OTHER/NOT_ENOUGH_INFO` (other or unknown)
+- **Threshold Extraction**: For splits with a threshold, `get_threshold_minimum_shares` will extract the minimum shares required and explanation, retrying up to 3 times if needed.
+
+## Input Requirements for AI Functions
+
+- `get_split_details` only requires `symbol` and `article_link` for each stock; all other details are extracted automatically.
+- `get_threshold_minimum_shares` requires `symbol`, `ratio`, and optionally a grounding link.
 
 ## Requirements
 

@@ -430,3 +430,90 @@ def get_split_details(splits):
             continue
         filtered.append(split)
     return filtered
+
+
+def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
+    """
+    Use Gemini API to extract the minimum fractional share threshold for rounding up, given a stock symbol, split ratio, and optional grounding link.
+    Returns (minimum_shares_required, threshold_info) or (None, None) if not found.
+    Example: If threshold is 1/2 and ratio is 10, returns 5.
+    """
+    client = configure_gemini()
+    if not client:
+        logging.warning("Gemini API not configured, skipping threshold minimum shares check")
+        return None, None
+
+    article_info = ""
+    if grounding_link:
+        article_info = f"\nAdditionally, please check this specific article or SEC filing: {grounding_link}"
+
+    prompt = f"""
+    Given the following context about a reverse stock split for {symbol} with a split ratio of {ratio}, extract the minimum fractional share threshold required for rounding up to a whole share. If the threshold is described as a fraction (e.g., 1/2), return it as a decimal. If the split ratio is X-for-1, compute the minimum shares required for rounding up as X * threshold. If the information is not found, reply with 'unknown'.
+
+    Example context:
+    "No fractional Common Shares will be issued in connection with the Consolidation. Any fractional Common Shares remaining after the Consolidation that are less than ½ of a Common Share will be cancelled, and each fractional Common Share that is at least ½ of a Common Share will be rounded up to one whole Common Share."
+
+    Respond in the following JSON format:
+    {{
+        "threshold_fraction": <decimal>,
+        "minimum_shares_required": <decimal>,
+        "explanation": <short explanation or quote from context>
+    }}
+    {article_info}
+    """
+
+    config = genai.types.GenerateContentConfig(
+        tools=[genai.types.Tool(google_search=genai.types.GoogleSearch()), genai.types.Tool(url_context=genai.types.UrlContext())],
+        temperature=0.2,
+        top_k=40,
+        top_p=0.95,
+    )
+
+    import re, json
+    max_attempts = 3
+    attempt = 0
+    min_shares = None
+    explanation = None
+    while attempt < max_attempts and (min_shares is None or explanation is None):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=config
+            )
+            response_text = None
+            if hasattr(response, "parts") and response.parts:
+                response_text = getattr(response.parts[0], "text", None)
+            elif hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, "content") and hasattr(candidate.content, "parts") and candidate.content.parts:
+                    response_text = getattr(candidate.content.parts[0], "text", None)
+            if not response_text:
+                response_text = str(response)
+
+            code_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
+            if code_match:
+                json_str = code_match.group(1)
+            else:
+                brace_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+                json_str = brace_match.group(0) if brace_match else None
+            if json_str:
+                try:
+                    data = json.loads(json_str)
+                    threshold = data.get("threshold_fraction")
+                    if min_shares is None:
+                        min_shares = data.get("minimum_shares_required")
+                    if explanation is None:
+                        explanation = data.get("explanation")
+                    if threshold is not None and min_shares is not None:
+                        return min_shares, explanation
+                except Exception as e:
+                    logging.warning(f"Error parsing Gemini threshold response: {e}")
+            logging.info(f"Gemini threshold response for {symbol}: {response_text}")
+        except Exception as e:
+            logging.error(f"Error querying Gemini for threshold minimum shares for {symbol}: {e}")
+        attempt += 1
+        if min_shares is None or explanation is None:
+            import time
+            time.sleep(2)
+    return min_shares, explanation

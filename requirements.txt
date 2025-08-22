@@ -8,3 +8,4 @@ webdriver-manager
 google-ai-generativelanguage>=0.6.0
 google-genai
 aiosmtplib
+pandas_market_calendars

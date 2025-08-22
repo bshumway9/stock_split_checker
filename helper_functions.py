@@ -2,6 +2,8 @@ import random
 import datetime
 import yfinance as yf
 import logging
+import pandas_market_calendars as mcal
+import re
 
 def get_random_emoji():
                 # Unicode ranges for emojis
@@ -136,3 +138,29 @@ def add_current_prices(splits):
             split['current_price'] = None
 
     return splits
+
+def market_is_open(date):
+    result = mcal.get_calendar("NYSE").schedule(start_date=date, end_date=date)
+    return result.empty == False
+
+def get_side_from_ratio(split, side='max'):
+    """
+    Extracts the larger or smaller side from the split ratio string.
+    Args:
+        split (dict): The split dictionary containing a 'ratio' key.
+        side (str): 'max' for larger side, 'min' for smaller side.
+    Returns:
+        int or None: The requested side value, or None if not found.
+    """
+    ratio = split.get('ratio')
+    if ratio:
+        match = re.search(r'(\d+)\s*[:\-–>]\s*(\d+)', ratio)
+        if match:
+            num1 = int(match.group(1))
+            num2 = int(match.group(2))
+            return max(num1, num2) if side == 'max' else min(num1, num2)
+        else:
+            nums = [int(n) for n in re.findall(r'\d+', ratio)]
+            if nums:
+                return max(nums) if side == 'max' else min(nums)
+    return ratio

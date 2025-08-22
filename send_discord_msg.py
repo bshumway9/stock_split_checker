@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import requests
 from typing import Optional, List
@@ -190,6 +189,8 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
             for split in splits_by_date[date]:
                 ratio = split.get('ratio', 'N/A')
                 current_price = split.get('current_price', None)
+                min_shares = split.get('min_shares_for_roundup')
+                threshold_explanation = split.get('threshold_explanation')
                 
                 # Format price display if we have both price and ratio
                 if current_price and ratio != 'N/A':
@@ -200,7 +201,7 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
                             if len(ratio_parts) == 2:
                                 multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
                                 projected_price = current_price * float(ratio_parts[0])
-                                price_display = f"${current_price}--->${projected_price:.2f}"
+                                price_display = f"${current_price}x{min_shares}({current_price*min_shares})--->${projected_price:.2f}" if min_shares else f"${current_price}--->${projected_price:.2f}"
                             else:
                                 price_display = f"${current_price} ({ratio})"
                         else:
@@ -210,7 +211,12 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
                 else:
                     price_display = ratio
                 
-                message += f"{emoji} {split['symbol']} - {price_display}\n"
+                message += f"{emoji} {split['symbol']} - {price_display}"
+                if min_shares:
+                    message += f" | Buy {min_shares} shares"
+                message += "\n"
+                if threshold_explanation:
+                    message += f"Roundup Notes: {threshold_explanation}\n"
             if date.lower() != "unknown":
                 prev_market_day = next_market_day(datetime.strptime(date, '%Y-%m-%d').date(), previous=True)
             else:
@@ -321,3 +327,36 @@ async def send_discord_message(webhook_url: str, splits: list, username: str = "
     except Exception as e:
         logging.error(f"Error in send_discord_message: {e}")
         return False
+
+
+def format_discord_buy_message(splits, dry_run=True):
+    buy_1_share = []
+    for split in splits:
+        fractional = split.get('fractional', '').lower()
+        # Skip decided non-actionable outcomes from display (still persisted in DB)
+        if fractional == "rounded up to nearest whole share":
+            buy_1_share.append(split)
+        else:
+            continue
+    if not buy_1_share:
+        return None
+    symbols = [split['symbol'].upper() for split in buy_1_share]
+    message = "!rsa buy 1 " + ",".join(symbols) + f" all {"false" if not dry_run else "true"}"
+    return message
+
+async def send_discord_buy_message(webhook_url: str, splits: list, username: str = "Stock Split Bot", dry_run=True) -> bool:
+    """
+    Send a Discord message for buying 1 share of each stock in the splits list.
+
+    Args:
+        webhook_url (str): The Discord webhook URL.
+        splits (list): The list of stock splits.
+        username (str): The username to display for the bot.
+
+    Returns:
+        bool: True if the message was sent successfully, False otherwise.
+    """
+    message = format_discord_buy_message(splits, dry_run=dry_run)
+    if message:
+        return await send_discord_webhook(webhook_url, message, username)
+    return False
