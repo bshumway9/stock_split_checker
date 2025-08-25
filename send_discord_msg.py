@@ -356,7 +356,10 @@ async def send_discord_buy_message(webhook_url: str, splits: list, username: str
     Returns:
         bool: True if the message was sent successfully, False otherwise.
     """
-    message = format_discord_buy_message(splits, dry_run=dry_run)
-    if message:
-        return await send_discord_webhook(webhook_url, message, username)
-    return False
+    try:
+        message = format_discord_buy_message(splits, dry_run=dry_run)
+        if message:
+            return send_discord_webhook(webhook_url, message, username)
+    except Exception as e:
+        logging.error(f"Error in send_discord_buy_message: {e}")
+        return False
