@@ -1,10 +1,44 @@
 from dotenv import dotenv_values
 import logging
 import time
+import os
+import signal
+from contextlib import contextmanager
 from google import genai
 from helper_functions import sort_key
 
 env = dotenv_values(".env")
+
+# Timeout utilities
+class _GeminiTimeout(Exception):
+    pass
+
+@contextmanager
+def _time_limit(seconds: int):
+    """Context manager to raise TimeoutError if block exceeds 'seconds'. Linux-only (uses SIGALRM)."""
+    if not seconds or seconds <= 0:
+        # No timeout requested
+        yield
+        return
+    def _handler(signum, frame):
+        raise _GeminiTimeout(f"Gemini call exceeded {seconds}s")
+    prev = signal.signal(signal.SIGALRM, _handler)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        yield
+    finally:
+        # Clear timer and restore handler
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prev)
+
+def _call_gemini_with_timeout(client: genai.Client, *, model: str, contents: str, config, timeout_seconds: int):
+    """Call Gemini with a hard timeout guard to avoid indefinite hangs."""
+    with _time_limit(timeout_seconds):
+        return client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
 
 # Configure Gemini API
 def configure_gemini():
@@ -59,6 +93,7 @@ def check_roundup(splits):
     if not client:
         logging.warning("Gemini API not configured, skipping fractional shares check")
         return splits
+    timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", env.get("GEMINI_TIMEOUT_SECONDS", 45)) or 45)
     
     # Define the grounding tool for Google Search
     # grounding_tool = genai.types.Tool(
@@ -137,11 +172,13 @@ def check_roundup(splits):
                 Do not include any explanations, just respond with one of these exact phrases.
                 """
 
-                logging.info(f"Querying Gemini API for {symbol} with grounding, attempt {attempt+1}")
-                response = client.models.generate_content(
+                logging.info(f"Querying Gemini API for {symbol} with grounding, attempt {attempt+1} (timeout {timeout_seconds}s)")
+                response = _call_gemini_with_timeout(
+                    client,
                     model="gemini-2.5-flash",
                     contents=prompt,
-                    config=config
+                    config=config,
+                    timeout_seconds=timeout_seconds,
                 )
                 print('response: ', response)
                 # logging.info(f"Gemini API response for {symbol}: {response}")
@@ -151,6 +188,9 @@ def check_roundup(splits):
                     result = "NO_INFO"
                 logging.info(f"Grounded Gemini API response for {symbol}: {result}")
                 print(f"Grounded Gemini API response for {symbol}: {result}")
+            except _GeminiTimeout as e:
+                last_error = e
+                logging.error(f"Timeout querying Gemini API for {symbol} (attempt {attempt+1}): {e}")
             except Exception as e:
                 last_error = e
                 logging.error(f"Error querying Gemini API for {symbol} (attempt {attempt+1}): {e}")
@@ -179,14 +219,22 @@ def check_roundup(splits):
             
             # Query Gemini API with grounding
             logging.info(f"Querying Gemini API for {symbol} with grounding")
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",  # or gemini-1.5-pro if you prefer
-                contents=prompt,
-                config=config
-            )
+            try:
+                response = _call_gemini_with_timeout(
+                    client,
+                    model="gemini-2.5-flash",  # or gemini-1.5-pro if you prefer
+                    contents=prompt,
+                    config=config,
+                    timeout_seconds=timeout_seconds,
+                )
+            except _GeminiTimeout as e:
+                last_error = e
+                logging.error(f"Timeout on final Gemini retry for {symbol}: {e}")
+                response = None
             
             print('response: ', response)
-            result = extract_allowed_output(response, allowed_outputs)
+            if response is not None:
+                result = extract_allowed_output(response, allowed_outputs)
             if result == "":
                 logging.warning(f"No response text for {symbol} defaulting to NO_INFO, api response: {getattr(response, 'body', None)}")
                 result = "OTHER/NOT_ENOUGH_INFO"
@@ -253,6 +301,7 @@ def get_split_details(splits):
     if not client:
         logging.warning("Gemini API not configured, skipping split details check")
         return []
+    timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", env.get("GEMINI_TIMEOUT_SECONDS", 45)) or 45)
 
     google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
     url_context = genai.types.Tool(url_context=genai.types.UrlContext())
@@ -322,10 +371,12 @@ def get_split_details(splits):
                     If any information is not found, use "unknown" or false for is_reverse.
                     """
 
-                response = client.models.generate_content(
+                response = _call_gemini_with_timeout(
+                    client,
                     model="gemini-2.5-flash",
                     contents=prompt,
-                    config=config
+                    config=config,
+                    timeout_seconds=timeout_seconds,
                 )
                 # Extract text from Gemini response
                 response_text = None
@@ -406,6 +457,9 @@ def get_split_details(splits):
                     except Exception as e:
                         last_error = e
                         logging.info(f"Error parsing JSON response for {symbol}: {e}")
+            except _GeminiTimeout as e:
+                last_error = e
+                logging.info(f"Timeout occurred for {symbol}: {e}")
             except Exception as e:
                 last_error = e
                 logging.info(f"Error occurred for {symbol}: {e}")
@@ -442,6 +496,7 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
     if not client:
         logging.warning("Gemini API not configured, skipping threshold minimum shares check")
         return None, None
+    timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", env.get("GEMINI_TIMEOUT_SECONDS", 45)) or 45)
 
     article_info = ""
     if grounding_link:
@@ -476,10 +531,12 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
     explanation = None
     while attempt < max_attempts and (min_shares is None or explanation is None):
         try:
-            response = client.models.generate_content(
+            response = _call_gemini_with_timeout(
+                client,
                 model="gemini-2.5-flash",
                 contents=prompt,
-                config=config
+                config=config,
+                timeout_seconds=timeout_seconds,
             )
             response_text = None
             if hasattr(response, "parts") and response.parts:
@@ -510,6 +567,8 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
                 except Exception as e:
                     logging.warning(f"Error parsing Gemini threshold response: {e}")
             logging.info(f"Gemini threshold response for {symbol}: {response_text}")
+        except _GeminiTimeout as e:
+            logging.error(f"Timeout querying Gemini for threshold minimum shares for {symbol}: {e}")
         except Exception as e:
             logging.error(f"Error querying Gemini for threshold minimum shares for {symbol}: {e}")
         attempt += 1
