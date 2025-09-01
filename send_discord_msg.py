@@ -333,8 +333,9 @@ def format_discord_buy_message(splits, dry_run=True):
     buy_1_share = []
     for split in splits:
         fractional = split.get('fractional', '').lower()
+        current_price = split.get('current_price', None)
         # Skip decided non-actionable outcomes from display (still persisted in DB)
-        if fractional == "rounded up to nearest whole share":
+        if fractional == "rounded up to nearest whole share" and current_price and current_price < 1.25:
             buy_1_share.append(split)
         else:
             continue
