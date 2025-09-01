@@ -580,7 +580,7 @@ def main():
             return
         logging.info("Market is open today, attempting purchases now.")
         try:
-            buy_success = asyncio.run(send_discord_buy_message(discord_buy_webhook, new_splits, dry_run=True))
+            buy_success = asyncio.run(send_discord_buy_message(discord_buy_webhook, new_splits, dry_run=False))
             if buy_success:
                 logging.info("Discord buy message sent successfully")
         except Exception as e:
