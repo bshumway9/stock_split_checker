@@ -8,10 +8,12 @@ services:
     volumes:
       # Mount .env file (create this file with your credentials)
       - ./.env:/app/.env
-      # Mount logs directory to persist logs
+      # Mount logs directory to persist logs and last_run.txt
       - ./logs:/app/logs
       # Mount stock split checker log file
-      - ./stock_split_checker.log:/app/stock_split_checker.log
+      - ./logs/stock_split_checker.log:/app/stock_split_checker.log
+      # Mount last_run.txt to persist last run info
+      - ./logs/last_run.txt:/app/logs/last_run.txt
     environment:
       - TZ=America/Denver  # Mountain Time (MST/MDT with daylight saving)
     # Optional: if you want to access the container

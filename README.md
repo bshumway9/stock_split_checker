@@ -1,53 +1,27 @@
-
-# Discord Webhook Setup
-
-To enable Discord notifications, you must set up a Discord webhook and provide its URL as an environment variable.
-
-**Steps:**
-1. In your Discord server, go to the channel where you want to receive notifications.
-2. Click the gear icon (Edit Channel) > Integrations > Webhooks > New Webhook.
-3. Copy the webhook URL.
-4. Set the following environment variable in your `.env` file or Docker environment:
-
-```
-DISCORD_WEBHOOK_URL=<your_discord_webhook_url>
-DISCORD_BUY_WEBHOOK_URL=<your_discord_buy_webhook_url>
-```
-
-**Example .env entry:**
-```
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz
-DISCORD_BUY_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz
-```
-
-The application will use these variables to send notifications to your Discord channel.
-
-## Discord Buy Message
-
-When actionable splits are found, the application sends a Discord "Buy" message using the `send_discord_buy_message` function. This message is sent to the webhook specified by `DISCORD_BUY_WEBHOOK_URL` and contains a command for buying 1 share of each qualifying stock.
-In reverse_split_checker change dry_run=True to dry_run=False when ready to actually buy.
-
-**Message Format:**
-
-```
-!rsa buy 1 SYMBOL1,SYMBOL2,SYMBOL3 all true
-```
-
-- `SYMBOL1,SYMBOL2,...` are the stock symbols that round up fractional shares to a whole share ("Buy 1 Share" category).
-- The final `true` or `false` indicates whether the message is a dry run (test) or a live command.
-
-**Requirements:**
-- You must set `DISCORD_BUY_WEBHOOK_URL` in your `.env` file to enable buy messages.
-- The bot username defaults to "Stock Split Bot" but can be customized.
-
-**How it works:**
-- The function `send_discord_buy_message(webhook_url, splits, username, dry_run)` is called with the webhook URL, a list of actionable splits, and optional username/dry_run flag.
-- Only splits where `fractional` is "rounded up to nearest whole share" are included in the buy message.
-
 # Stock Split Checker
 
-A Python application that monitors upcoming reverse stock splits from multiple financial data sources and automatically sends notifications via email or SMS. The application helps identify stocks that round up fractional shares during reverse splits, which can be profitable for investors holding small positions.
+A Python application that monitors upcoming reverse stock splits from multiple financial data sources and automatically sends notifications via Discord, email, or SMS. The application helps identify stocks that round up fractional shares during reverse splits, which can be profitable for investors holding small positions.
 
+---
+
+## Table of Contents
+
+1. [Features](#features)
+2. [Quick Start](#quick-start)
+3. [Configuration](#configuration)
+4. [Notifications & Automation](#notifications--automation)
+   - [Discord Webhook Setup](#discord-webhook-setup)
+   - [Discord Buy Bot Integration](#discord-buy-bot-integration)
+5. [Usage](#usage)
+6. [File Structure](#file-structure)
+7. [How It Works](#how-it-works)
+8. [Troubleshooting](#troubleshooting)
+9. [Customization](#customization)
+10. [Contributing](#contributing)
+11. [License](#license)
+12. [Disclaimer](#disclaimer)
+
+---
 
 ## Features
 
@@ -57,28 +31,113 @@ A Python application that monitors upcoming reverse stock splits from multiple f
    - Nasdaq.com (optional) (currently unavailable)
    - SEC Edgar filings (optional) (currently unavailable)
    - StockTitan.net (optional) (currently unavailable)
-
 - **AI-Powered Analysis**: Uses Google Gemini API to automatically research and categorize how companies handle fractional shares during reverse splits, and extract split details and thresholds.
-
-- **Gemini-Powered Functions**:
-   - `get_split_details`: Given only `symbol` and `article_link`, uses Gemini to extract:
-      - Split ratio (always formatted as `X->Y`, e.g. `100->1` for reverse, `1->5` for forward)
-      - Effective date (always formatted as `YYYY-MM-DD`)
-      - Whether the split is a reverse split (`is_reverse`)
-      - Fractional handling (one of: `ROUND_UP`, `CASH_IN_LIEU`, `ROUND_DOWN`, `THRESHOLD_ROUND_UP`, `OTHER/NOT_ENOUGH_INFO`)
-      - Robust parsing and retry logic to ensure accurate extraction from AI responses
-   - `get_threshold_minimum_shares`: Uses Gemini to extract the minimum shares required for rounding up in threshold splits, with retry logic and explanation returned.
-
-- **Smart Categorization**: Organizes reverse splits into three categories:
-   - **Buy 1 Share**: Companies that round up any fractional shares to whole shares
-   - **Buy ? Shares**: Companies that round up only if fractional shares exceed a threshold (uses `get_threshold_minimum_shares` for details)
-   - **Check Rounding**: Companies with unspecified or other fractional share handling
-
-- **Flexible Notifications**: Sends notifications via:
-   - Email (Gmail SMTP)
-   - SMS (via email-to-SMS gateways) (Currently messages are limited in size and will generally be cut off thus losing valuable info)(Use Email)
-
+- **Smart Categorization**: Organizes reverse splits into actionable categories (Buy 1 Share, Buy ? Shares, Check Rounding)
+- **Flexible Notifications**: Sends notifications via Discord, Email (Gmail SMTP), and (limited) SMS (email-to-SMS gateways; not fully supported)
 - **Automated Scheduling**: Can be configured to run daily checks
+- **Docker Support**: Run the app easily in a container ([see Docker Support](#docker-support))
+## Quick Start
+
+1. **Clone or download the project:**
+   ```bash
+   git clone <repository-url>
+   cd stock_split_checker
+   ```
+2. **Copy and edit the example environment file:**
+   ```bash
+   cp example.env .env
+   nano .env
+   ```
+3. **(Recommended) Create a virtual environment and install dependencies:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+4. **Run once for testing:**
+   ```bash
+   python reverse_split_checker.py
+   ```
+5. **For Docker users:**
+   See [Docker Support](#docker-support) or [DOCKER_SETUP.md](DOCKER_SETUP.md) for full container instructions.
+
+---
+
+## Docker Support
+
+You can run this project in a container for easy scheduling and isolation. See [DOCKER_SETUP.md](DOCKER_SETUP.md) for full instructions, including how to mount your `.env` and `logs/` directories for persistence.
+
+---
+
+
+## Configuration
+
+Create a `.env` file in the project root directory with the following variables (see `example.env` for a template):
+
+### Required Variables
+```env
+# Discord webhook (Required for notifications) (Primary Notification)
+DISCORD_WEBHOOK_URL=your-discord-webhook-url
+DISCORD_BUY_WEBHOOK_URL=your-discord-buy-webhook-url
+# Gmail Configuration (Required for notifications) (Secondary Notification)
+SENDER_EMAIL=your-gmail@gmail.com
+GMAIL_KEY=your-app-password
+# Google Gemini API (Required for AI analysis of fractional share handling)
+GEMINI_API_KEY=your-gemini-api-key
+# Phone Number (Optional, for SMS notifications; limited support)
+PHONE_NUMBER=1234567890
+```
+
+### Optional Variables
+```env
+# Additional Email Recipients (not yet implemented)
+RECIPIENT_EMAIL=recipient@example.com
+```
+
+**Security Tip:** Never commit your `.env` file with real credentials to a public repo.
+
+---
+
+## Optional: Setting Up Google Gemini API
+
+The Gemini API is used to automatically research how companies handle fractional shares during reverse splits. This feature is optional but highly recommended for accurate categorization.
+
+1. Go to [Google AI Studio](https://aistudio.google.com/)
+2. Create a new API key
+3. Ensure your API key has access to the Google Search grounding tool (usually automatic)
+4. Add the API key to your `.env` file as `GEMINI_API_KEY`
+
+**Note:** Without the Gemini API, all splits will be categorized as "Check Rounding" and you'll need to research fractional share handling manually.
+
+---
+
+## Notifications & Automation
+
+
+### [Discord Webhook Setup](DISCORD_SETUP.md)
+
+To enable Discord notifications, set up a Discord webhook and add its URL to your `.env` file. For a full step-by-step guide and to see the message formatting, see [DISCORD_SETUP.md](DISCORD_SETUP.md).
+
+
+### Discord Buy Bot Integration
+
+This project supports seamless stock purchases via Discord using a buy command webhook. When actionable splits are found, the app sends a buy message to a Discord bot (such as [auto-rsa](https://github.com/NelsonDane/auto-rsa)) that is already set up and connected to your brokerages. Only stocks that round up fractional shares to a whole share are included. To actually execute buys, set `dry_run=False` in `reverse_split_checker.py`.
+
+**Setup:**
+1. Set up the [auto-rsa](https://github.com/NelsonDane/auto-rsa) Discord bot and connect it to your brokerages (see that repo for Docker container setup and instructions).
+2. Add your Discord buy webhook URL to your `.env` as `DISCORD_BUY_WEBHOOK_URL`.
+3. When a qualifying split is found, the bot will send the buy command to your Discord, and the auto-rsa bot will handle the purchase.
+
+**Message Format Example:**
+```
+!rsa buy 1 SYMBOL1,SYMBOL2,SYMBOL3 all true
+```
+Where `SYMBOL1,SYMBOL2,...` are the stock symbols that round up fractional shares to a whole share ("Buy 1 Share" category). The final `true` or `false` indicates whether the message is a dry run (test) or a live command.
+
+> **Note:** Follow the [auto-rsa GitHub repo](https://github.com/NelsonDane/auto-rsa) for the latest on Docker container setup and brokerage integration.
+
+---
+
 
 ## Gemini-Powered Extraction Details
 
@@ -165,7 +224,7 @@ RECIPIENT_EMAIL=recipient@example.com
 
 **Important**: Do not use your regular Gmail password. You must use an App Password.
 
-## Setting Up Google Gemini API (Optional)
+## Setting Up Google Gemini API
 
 The Gemini API is used to automatically research how companies handle fractional shares during reverse splits. This feature is optional but highly recommended for accurate categorization.
 
@@ -257,8 +316,9 @@ stock_split_checker/
 ├── site_scrapers.py           # Additional web scrapers
 ├── helper_functions.py        # Utility functions
 ├── test_*.py                  # Individual scraper test scripts
-├── stock_split_checker.log    # Application log file
 └── logs/                      # Debug logs, screenshots, and persisted data
+   ├── stock_split_checker.log    # Application log file
+   ├── last_run.txt            # Last application run time
    ├── previously_sent_db.json # Full records of previously sent splits (host-visible)
    └── previously_sent.txt     # Human-readable “Previously Sent (Still Buyable)” list
 ```
@@ -302,7 +362,8 @@ stock_split_checker/
 
 ### Debug Information
 
-- Application logs are written to `stock_split_checker.log`
+- Last run time is written to `logs/last_run.txt`
+- Application logs are written to `logs/stock_split_checker.log`
 - Selenium debug screenshots and HTML are saved to the `logs/` directory (maybe?)
 - Run individual test scripts to debug specific scrapers
 
@@ -340,7 +401,7 @@ To add new stock split data sources:
 
 Edit the `send_message()` function in `reverse_split_checker.py` to customize the notification format.
 
-### Changing Carriers for SMS
+### Changing Carriers for SMS (SMS not fully supported)
 
 Modify the `CARRIER_MAP` in `send_txt_msg.py` to add support for additional mobile carriers.
 
@@ -358,4 +419,6 @@ This project is for educational and personal use. Please respect the terms of se
 
 ## Disclaimer
 
-This application is for informational purposes only and should not be considered financial advice. Always perform your own research before making investment decisions. The accuracy of data depends on the reliability of the source websites and may not always be current or complete.
+**Not Financial or Investment Advice:**
+
+This application is for informational and educational purposes only. It does not constitute financial, investment, or trading advice. No guarantee is made regarding the accuracy, completeness, or reliability of the data or actions taken by the bot. Always do your own research and consult a qualified financial advisor before making investment decisions. Use at your own risk.

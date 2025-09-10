@@ -32,5 +32,7 @@ README.md
 *.md
 
 # Logs (these will be mounted as volumes)
+# Exclude all log files except for a specific one (e.g., logs/important.log)
 logs/
 *.log
+!logs/last_run.txt

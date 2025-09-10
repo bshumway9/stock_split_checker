@@ -99,7 +99,7 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
         return f"📊 **No splits found today {datetime.now().strftime('%m-%d-%Y')}**"
 
     message = f"🚨 **Upcoming Splits {datetime.now().strftime('%m-%d-%Y')}** 🚨\n\n"
-
+    logging.info(f"formatting discord message with splits: {splits}, prev_splits: {prev_splits}")
     # Categorize splits by fractional share handling
     buy_1_share = []
     buy_threshold = []
@@ -134,6 +134,9 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
             prev_buy_threshold.append(split)
         else:
             prev_check_rounding.append(split)
+
+    if not (buy_1_share or buy_threshold or check_rounding or prev_buy_1_share or prev_buy_threshold or prev_check_rounding):
+        return f"📊 **No splits found today {datetime.now().strftime('%m-%d-%Y')}**"
     
     emoji = get_random_emoji()  # Assuming this function returns a random emoji for the message
 
@@ -279,6 +282,8 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
             for split in splits_by_date[date_str]:
                 ratio = split.get('ratio', 'N/A')
                 current_price = split.get('current_price', None)
+                min_shares = split.get('min_shares_for_roundup')
+                threshold_explanation = split.get('threshold_explanation')
                 try:
                     if current_price and ratio != 'N/A':
                         if '->' in ratio:
@@ -286,7 +291,10 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
                             if len(parts) == 2:
                                 multiplier = float(parts[1]) / float(parts[0])
                                 projected_price = current_price * float(parts[0])
-                                price_display = f"${current_price}--->${projected_price:.2f}"
+                                if split in prev_buy_threshold and min_shares:
+                                    price_display = f"${current_price}x{min_shares}({current_price*min_shares})--->${projected_price:.2f}"
+                                else:
+                                    price_display = f"${current_price}--->${projected_price:.2f}"
                             else:
                                 price_display = f"${current_price} ({ratio})"
                         else:
@@ -295,7 +303,12 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
                         price_display = ratio
                 except (ValueError, ZeroDivisionError):
                     price_display = f"${current_price} ({ratio})" if current_price else ratio
-                message += f"{get_random_emoji()} {split.get('symbol','?')} - {price_display}\n"
+                message += f"{get_random_emoji()} {split.get('symbol','?')} - {price_display}"
+                if split in prev_buy_threshold and min_shares:
+                    message += f" | Buy {min_shares} shares"
+                message += "\n"
+                if split in prev_buy_threshold and threshold_explanation:
+                    message += f"Roundup Notes: {threshold_explanation}\n"
             if date_str.lower() != "unknown":
                 prev_day = next_market_day(datetime.strptime(date_str, '%Y-%m-%d').date(), previous=True)
             else:

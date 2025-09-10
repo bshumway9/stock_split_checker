@@ -37,7 +37,8 @@ docker run -d \
   --restart unless-stopped \
   -v $(pwd)/.env:/app/.env \
   -v $(pwd)/logs:/app/logs \
-  -v $(pwd)/stock_split_checker.log:/app/stock_split_checker.log \
+  -v $(pwd)/logs/stock_split_checker.log:/app/stock_split_checker.log \
+  -v $(pwd)/logs/last_run.txt:/app/logs/last_run.txt \
   -e TZ=America/New_York \
   stock-split-checker
 ```

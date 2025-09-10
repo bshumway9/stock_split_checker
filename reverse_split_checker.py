@@ -42,9 +42,15 @@ def run_with_retries(func, max_retries=2, delay=5, *args, **kwargs):
 #   To get a webhook URL: Server Settings > Integrations > Webhooks > New Webhook
 env = dotenv_values('.env')
 
-# Set up logging
-logging.basicConfig(filename='stock_split_checker.log', level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Ensure logs directory exists
+os.makedirs('logs', exist_ok=True)
+
+# Set up logging to logs/stock_split_checker.log
+logging.basicConfig(
+    filename='logs/stock_split_checker.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 
 
@@ -219,7 +225,6 @@ def get_reverse_splits():
 
     # Filter for splits from today onward
     today = next_market_day()
-    prev_week = next_market_day(datetime.now().date(), previous=True, days=5)
     upcoming_splits = [
         split for split in unique_splits
         if (
@@ -391,7 +396,7 @@ def main():
     logging.info("Starting reverse split check")
     splits, pre_checked_splits = get_reverse_splits()
     logging.info(f"Found {len(splits)} upcoming reverse splits")
-
+    logging.info(f"Found Splits: {splits}")
     # Combine candidates
     candidates = list(splits)
     if pre_checked_splits:
@@ -400,7 +405,7 @@ def main():
     # Load sent DB and split into new vs previously sent (still buyable)
     db = _load_sent_db()
     today = next_market_day()
-    prev_week = next_market_day(datetime.now().date(), previous=True, days=5)
+    prev_two_weeks = next_market_day(datetime.now().date(), previous=True, days=10)
 
     def is_still_buyable(s):
         try:
@@ -487,6 +492,7 @@ def main():
 
     # Process new splits only
     if new_splits:
+        logging.info(f"new splits to process: {new_splits}")
         # Always refresh current prices for new items
         new_splits = add_current_prices(new_splits)
         # Split into those already carrying a fractional decision vs those needing processing
@@ -526,7 +532,7 @@ def main():
         eff = rec_data.get('effective_date', 'unknown')
         try:
             eff_date = datetime.strptime(eff, '%Y-%m-%d').date()
-            keep = eff.lower() == 'unknown' or eff_date >= prev_week
+            keep = eff.lower() == 'unknown' or eff_date >= prev_two_weeks
         except Exception:
             keep = True
         if keep:
@@ -555,6 +561,9 @@ def main():
                 data['fractional'] = s.get('fractional')
                 rec['data'] = data
                 rec['last_seen'] = now_str
+            else:
+                # Just update last_seen
+                rec['last_seen'] = now_str
         elif rec is None:
             # Safety: if somehow not in DB but we have a decided result, add it now
             frac = (s.get('fractional') or '').strip().lower()
@@ -564,6 +573,69 @@ def main():
                     'first_sent': now_str,
                     'last_seen': now_str
                 }
+        
+    # Merge DB records for same symbol with different effective dates, keeping the latest
+    merged_db = {}
+    by_symbol = {}
+
+    # Group all records by normalized symbol
+    for k, v in db.items():
+        rec_data = _get_rec_data(v)
+        sym = _norm_symbol(rec_data.get('symbol', ''))
+        if not sym:
+            continue
+        by_symbol.setdefault(sym, []).append((k, v))
+
+    for sym, records in by_symbol.items():
+        if len(records) == 1:
+            # Only one record, keep as is
+            k, v = records[0]
+            merged_db[k] = v
+            continue
+
+        # Sort records by effective date (latest first)
+        def _date_key(rec):
+            eff = _get_rec_data(rec[1]).get('effective_date', 'unknown')
+            try:
+                return datetime.strptime(eff, '%Y-%m-%d')
+            except Exception:
+                return datetime.min
+        records_sorted = sorted(records, key=_date_key, reverse=True)
+        # Take the latest as base
+        base_key, base_val = records_sorted[0]
+        base_data = _get_rec_data(base_val).copy()
+
+        # Merge article links from all records
+        all_links = set()
+        for _, v in records:
+            links = _get_rec_data(v).get('article_link', [])
+            if isinstance(links, str):
+                all_links.add(links)
+            elif isinstance(links, list):
+                all_links.update(links)
+        if all_links:
+            base_data['article_link'] = list(all_links)
+
+        # Optionally, merge other fields if needed (e.g., company, ratio, fractional)
+        # Prefer non-empty values from the latest record, fallback to others if missing
+        fields_to_merge = ['company', 'ratio', 'fractional', 'current_price', 'is_reverse']
+        for field in fields_to_merge:
+            if not base_data.get(field):
+                for _, v in records_sorted:
+                    val = _get_rec_data(v).get(field)
+                    if val:
+                        base_data[field] = val
+                        break
+
+        # Compose merged record metadata
+        merged_record = {
+            'data': base_data,
+            'first_sent': base_val.get('first_sent', ''),
+            'last_seen': base_val.get('last_seen', '')
+        }
+        merged_db[base_key] = merged_record
+
+    db = merged_db
 
     # Persist DB and human-readable report
     logging.info(f"Persisting sent DB with {len(db)} records to {SENT_DB_PATH}")

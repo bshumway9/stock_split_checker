@@ -10,7 +10,9 @@ import subprocess
 SCHEDULED_HOUR = 8
 SCHEDULED_MINUTE = 0
 MT_TZ = pytz.timezone('America/Denver')
-LAST_RUN_FILE = './last_run.txt'
+LOGS_DIR = './logs'
+os.makedirs(LOGS_DIR, exist_ok=True)
+LAST_RUN_FILE = os.path.join(LOGS_DIR, 'last_run.txt')
 SCRIPT_PATH = './reverse_split_checker.py'
 PYTHON_PATH = sys.executable
 
