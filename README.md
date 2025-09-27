@@ -125,7 +125,7 @@ This project supports seamless stock purchases via Discord using a buy command w
 
 **Setup:**
 1. Set up the [auto-rsa](https://github.com/NelsonDane/auto-rsa) Discord bot and connect it to your brokerages (see that repo for Docker container setup and instructions).
-2. Add your Discord buy webhook URL to your `.env` as `DISCORD_BUY_WEBHOOK_URL`.
+2. Add your Discord buy webhook URL(s) to your `.env` as `DISCORD_BUY_WEBHOOK_URL`. You may specify multiple webhooks separated by commas if you want the buy command sent to multiple servers/channels.
 3. When a qualifying split is found, the bot will send the buy command to your Discord, and the auto-rsa bot will handle the purchase.
 
 **Message Format Example:**
@@ -133,6 +133,12 @@ This project supports seamless stock purchases via Discord using a buy command w
 !rsa buy 1 SYMBOL1,SYMBOL2,SYMBOL3 all true
 ```
 Where `SYMBOL1,SYMBOL2,...` are the stock symbols that round up fractional shares to a whole share ("Buy 1 Share" category). The final `true` or `false` indicates whether the message is a dry run (test) or a live command.
+
+If you provided multiple webhook URLs in `DISCORD_BUY_WEBHOOK_URL`, the exact same command will be sent to each webhook sequentially. Example:
+```
+DISCORD_BUY_WEBHOOK_URL=https://discord.com/api/webhooks/AAA,https://discord.com/api/webhooks/BBB, https://discord.com/api/webhooks/CCC
+```
+Whitespace around commas is ignored.
 
 > **Note:** Follow the [auto-rsa GitHub repo](https://github.com/NelsonDane/auto-rsa) for the latest on Docker container setup and brokerage integration.
 

@@ -646,13 +646,15 @@ def main():
     send_message(new_splits, prev_splits=prev_splits)
     logging.info("Reverse split check completed")
     if is_open:
-        discord_buy_webhook = env.get("DISCORD_BUY_WEBHOOK_URL", "")
-        if not discord_buy_webhook:
+        discord_buy_webhook_raw = env.get("DISCORD_BUY_WEBHOOK_URL", "")
+        if not discord_buy_webhook_raw:
             logging.warning("Discord buy webhook URL is not set.")
             return
+        # Support multiple comma-separated webhooks
+        discord_buy_webhook_list = [w.strip() for w in discord_buy_webhook_raw.split(',') if w.strip()]
         logging.info("Market is open today, attempting purchases now.")
         try:
-            buy_success = asyncio.run(send_discord_buy_message(discord_buy_webhook, new_splits, dry_run=False))
+            buy_success = asyncio.run(send_discord_buy_message(discord_buy_webhook_list, new_splits, dry_run=False))
             if buy_success:
                 logging.info("Discord buy message sent successfully")
         except Exception as e:

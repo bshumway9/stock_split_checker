@@ -1,6 +1,6 @@
 import logging
 import requests
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 from helper_functions import next_market_day, get_random_emoji
 from collections import defaultdict
@@ -157,12 +157,19 @@ def format_discord_message(splits: list, prev_splits: Optional[List[dict]] = Non
                 if current_price and ratio != 'N/A':
                     try:
                         # Extract the ratio number (e.g., "1:10" -> 10)
-                        if '->' in ratio:
-                            ratio_parts = ratio.split('->')
+                        if '->' in ratio or '->>' in ratio:
+                            # Support both '->' and '->>' as split indicators
+                            split_token = '->>' if '->>' in ratio else '->'
+                            ratio_parts = ratio.split(split_token)
                             if len(ratio_parts) == 2:
-                                multiplier = float(ratio_parts[1]) / float(ratio_parts[0])
-                                projected_price = current_price * float(ratio_parts[0])
-                                price_display = f"${current_price}--->${projected_price:.2f}"
+                                try:
+                                    left = float(ratio_parts[0])
+                                    right = float(ratio_parts[1])
+                                    multiplier = right / left
+                                    projected_price = current_price * left
+                                    price_display = f"${current_price}--->{projected_price:.2f}"
+                                except (ValueError, ZeroDivisionError):
+                                    price_display = f"${current_price} ({ratio})"
                             else:
                                 price_display = f"${current_price} ({ratio})"
                         else:
@@ -358,22 +365,43 @@ def format_discord_buy_message(splits, dry_run=True):
     message = "!rsa buy 1 " + ",".join(symbols) + f" all {"false" if not dry_run else "true"}"
     return message
 
-async def send_discord_buy_message(webhook_url: str, splits: list, username: str = "Stock Split Bot", dry_run=True) -> bool:
-    """
-    Send a Discord message for buying 1 share of each stock in the splits list.
+async def send_discord_buy_message(webhook_urls: Union[str, List[str]], splits: list, username: str = "Stock Split Bot", dry_run: bool = True) -> bool:
+    """Send a Discord buy command to one or multiple webhook URLs.
 
     Args:
-        webhook_url (str): The Discord webhook URL.
+        webhook_urls (Union[str, List[str]]): A single webhook URL or a list of webhook URLs.
         splits (list): The list of stock splits.
         username (str): The username to display for the bot.
+        dry_run (bool): If True, sends a dry run command ("true"), else executes ("false").
 
     Returns:
-        bool: True if the message was sent successfully, False otherwise.
+        bool: True if at least one webhook send succeeded, False otherwise.
     """
     try:
+        # Backwards compatibility: accept a single string
+        if isinstance(webhook_urls, str):
+            webhook_list = [w.strip() for w in webhook_urls.split(',') if w.strip()]
+        else:
+            webhook_list = [w.strip() for w in webhook_urls if w and w.strip()]
+
+        if not webhook_list:
+            logging.warning("No valid Discord buy webhook URLs provided.")
+            return False
+
         message = format_discord_buy_message(splits, dry_run=dry_run)
-        if message:
-            return send_discord_webhook(webhook_url, message, username)
+        if not message:
+            logging.info("No eligible splits to generate a buy message; skipping Discord buy webhook sends.")
+            return False
+
+        all_success = True
+        for idx, wh in enumerate(webhook_list, start=1):
+            success = send_discord_webhook(wh, message, username)
+            if success:
+                logging.info(f"Buy message sent successfully via webhook {idx}/{len(webhook_list)}")
+            else:
+                logging.error(f"Failed to send buy message via webhook {idx}/{len(webhook_list)}")
+                all_success = False
+        return all_success
     except Exception as e:
         logging.error(f"Error in send_discord_buy_message: {e}")
         return False
