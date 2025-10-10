@@ -175,7 +175,7 @@ def check_roundup(splits):
                 logging.info(f"Querying Gemini API for {symbol} with grounding, attempt {attempt+1} (timeout {timeout_seconds}s)")
                 response = _call_gemini_with_timeout(
                     client,
-                    model="gemini-2.5-flash",
+                    model="gemini-flash-latest",
                     contents=prompt,
                     config=config,
                     timeout_seconds=timeout_seconds,
@@ -222,7 +222,7 @@ def check_roundup(splits):
             try:
                 response = _call_gemini_with_timeout(
                     client,
-                    model="gemini-2.5-flash",  # or gemini-1.5-pro if you prefer
+                    model="gemini-flash-latest",  # or gemini-1.5-pro if you prefer
                     contents=prompt,
                     config=config,
                     timeout_seconds=timeout_seconds,
@@ -373,7 +373,7 @@ def get_split_details(splits):
 
                 response = _call_gemini_with_timeout(
                     client,
-                    model="gemini-2.5-flash",
+                    model="gemini-flash-latest",
                     contents=prompt,
                     config=config,
                     timeout_seconds=timeout_seconds,
@@ -533,7 +533,7 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
         try:
             response = _call_gemini_with_timeout(
                 client,
-                model="gemini-2.5-flash",
+                model="gemini-flash-latest",
                 contents=prompt,
                 config=config,
                 timeout_seconds=timeout_seconds,

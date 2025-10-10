@@ -374,7 +374,7 @@ def scrape_hedge_follow():
         driver = webdriver.Chrome(options=chrome_options)
         
         # Navigate to HedgeFollow's upcoming stock splits page
-        url = "https://hedgefollow.com/upcoming-stock-splits.php"
+        url = "https://www.hedgefollow.com/upcoming-stock-splits.php"
         logging.info(f"Navigating to {url}")
         driver.get(url)
         
@@ -519,7 +519,7 @@ def scrape_stock_titan(max_retries=3, retry_delay=5):
             driver = webdriver.Chrome(options=chrome_options)
             
             # Navigate to StockTitan stock splits page
-            url = "https://stocktitan.net/news/stock-splits.html"
+            url = "https://www.stocktitan.net/news/stock-splits.html"
             logging.info(f"Navigating to {url}")
             driver.get(url)
             
