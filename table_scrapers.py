@@ -8,6 +8,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 import time
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 from helper_functions import next_market_day
 
 
@@ -342,12 +345,15 @@ def scrape_yahoo_finance_selenium():
 
 def scrape_hedge_follow():
     """
-    Scrape upcoming stock splits from HedgeFollow.com using Selenium.
-    Returns a list of dictionaries containing split information.
+    Scrape upcoming stock splits from HedgeFollow.com using Selenium + BeautifulSoup.
+    Uses Selenium to load the JavaScript-rendered page, then BeautifulSoup for parsing.
+    Closes the Selenium connection as soon as the HTML is captured for efficiency.
+    Returns a tuple of (splits, past_splits) containing split information.
     """
     splits = []
     past_splits = []
     driver = None
+    page_html = None
     
     try:
         # Set up Chrome options for headless browsing
@@ -379,11 +385,52 @@ def scrape_hedge_follow():
         driver.get(url)
         
         # Wait for the latest_splits table to load
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 15)
+        
+        # First wait for the table element to be present
         table = wait.until(EC.presence_of_element_located((By.ID, "latest_splits")))
+        logging.info("HedgeFollow table element found, waiting for data to load...")
+        
+        # Wait for table rows to be populated with data (JavaScript loading)
+        # We wait until we have at least 2 rows (header + at least 1 data row)
+        # The lambda needs to find the element fresh each time
+        wait.until(lambda d: len(d.find_element(By.ID, "latest_splits").find_elements(By.TAG_NAME, "tr")) > 1)
+        
+        # Additional wait to ensure all rows are loaded
+        time.sleep(2)
+        
+        # Capture the fully-rendered HTML
+        page_html = driver.page_source
+        logging.info("HedgeFollow page HTML captured successfully")
+        
+    except Exception as e:
+        logging.error(f"Error loading HedgeFollow page with Selenium: {e}")
+        raise
+    finally:
+        # Close the WebDriver immediately after capturing HTML to free resources
+        if driver:
+            try:
+                driver.quit()
+                logging.info("HedgeFollow WebDriver closed successfully (before processing)")
+            except Exception as e:
+                logging.error(f"Error closing HedgeFollow WebDriver: {e}")
+    
+    # Now process the HTML with BeautifulSoup (connection is already closed)
+    try:
+        if not page_html:
+            logging.error("No HTML captured from HedgeFollow page")
+            return splits, past_splits
+        
+        soup = BeautifulSoup(page_html, 'html.parser')
+        
+        # Find the latest_splits table
+        table = soup.find('table', {'id': 'latest_splits'})
+        if not table:
+            logging.warning("Could not find latest_splits table in captured HTML")
+            return splits, past_splits
         
         # Get all rows from the table (except header row)
-        rows = table.find_elements(By.TAG_NAME, "tr")[1:]  # Skip header row
+        rows = table.find_all('tr')[1:]  # Skip header row
         logging.info(f"Found {len(rows)} rows in HedgeFollow latest_splits table")
 
         next_day = next_market_day()
@@ -391,18 +438,19 @@ def scrape_hedge_follow():
         for row in rows:
             try:
                 # Extract cells from each row
-                cells = row.find_elements(By.TAG_NAME, "td")
-                if len(cells) < 4:  # Ensure we have enough cells
+                cells = row.find_all('td')
+                if len(cells) < 5:  # Ensure we have enough cells (symbol, market, company, ratio, date)
                     continue
                 past_split = False
-                # Extract data from cells
-                company = cells[2].text.strip()
-                market = cells[1].text.strip()
-                symbol = cells[0].text.strip()
-                date_text = cells[4].text.strip()
-                ratio = cells[3].text.strip()
                 
-                # Skip if essential data is missing
+                # Extract data from cells
+                symbol = cells[0].get_text(strip=True)
+                market = cells[1].get_text(strip=True)
+                company = cells[2].get_text(strip=True)
+                ratio = cells[3].get_text(strip=True)
+                date_text = cells[4].get_text(strip=True)
+                
+                # Skip if essential data is missing or if OTC
                 if not symbol or not date_text or not ratio or market.lower() == "otc":
                     continue
                 
@@ -412,11 +460,9 @@ def scrape_hedge_follow():
                     effective_date = date_obj.strftime('%Y-%m-%d')
                     split_date = date_obj.date()
                     
-                    # Skip past splits
+                    # Check if this is a past split
                     if split_date < next_day:
                         past_split = True
-                        # logging.info(f"Skipping past split: {symbol} on {effective_date}")
-                        # continue
                         
                 except ValueError as e:
                     logging.warning(f"Could not parse HedgeFollow date '{date_text}': {e}")
@@ -441,8 +487,10 @@ def scrape_hedge_follow():
                     'effective_date': effective_date,
                     'fractional': 'Not specified',
                     'is_reverse': is_reverse,
+                    'source': 'HedgeFollow',
                     'article_link': []
                 }
+                
                 if past_split:
                     past_splits.append(split_info)
                 else:
@@ -453,19 +501,12 @@ def scrape_hedge_follow():
                 logging.error(f"Error processing HedgeFollow row: {e}")
                 continue
         
-        logging.info(f"Successfully scraped {len(splits)} splits from HedgeFollow")
+        logging.info(f"Successfully scraped {len(splits)} upcoming splits and {len(past_splits)} past splits from HedgeFollow")
         
     except Exception as e:
-        logging.error(f"Error scraping HedgeFollow: {e}")
+        logging.error(f"Error parsing HedgeFollow HTML with BeautifulSoup: {e}")
         raise
-    finally:
-        # Always close the WebDriver to free resources
-        if driver:
-            try:
-                driver.quit()
-                logging.info("WebDriver closed successfully")
-            except Exception as e:
-                logging.error(f"Error closing WebDriver: {e}")
+    
     return splits, past_splits
 
 
@@ -1031,3 +1072,239 @@ def scrape_nasdaq():
             except Exception as e:
                 logging.error(f"Error closing Nasdaq WebDriver: {e}")
     return splits
+
+
+def scrape_stock_titan_requests():
+    """
+    Alternative StockTitan scraper using requests + BeautifulSoup instead of Selenium.
+    Based on testing, this is faster (0.36s vs ~10s) and more reliable for StockTitan.
+    Use this as primary method, fallback to Selenium if needed.
+    
+    Returns a tuple: (recent_splits, all_splits_with_links)
+    """
+    recent_splits = []
+    all_splits_with_links = []
+    
+    # Optimized headers - no User-Agent works best for StockTitan
+    headers = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive'
+    }
+    
+    try:
+        url = "https://www.stocktitan.net/news/stock-splits.html"
+        logging.info(f"Fetching StockTitan data using requests method from {url}")
+        
+        start_time = time.time()
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        end_time = time.time()
+        
+        logging.info(f"StockTitan requests response: {response.status_code}, Time: {end_time - start_time:.2f}s")
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Look for the live news feed
+        news_feed = soup.find('div', {'id': 'live-news-feed'})
+        if not news_feed:
+            logging.warning("Could not find StockTitan live-news-feed div")
+            return recent_splits, all_splits_with_links
+        
+        logging.info("Found StockTitan live-news-feed div")
+        
+        # Look for news rows
+        news_rows = news_feed.find_all('div', class_='news-row')
+        if not news_rows:
+            news_rows = news_feed.find_all('div', {'data-news-id': True})
+        
+        if not news_rows:
+            logging.warning("Could not find StockTitan news rows")
+            return recent_splits, all_splits_with_links
+        
+        logging.info(f"Found {len(news_rows)} news rows in StockTitan feed")
+        
+        # Get date for filtering
+        prev_week = next_market_day(datetime.now().date(), previous=True, days=5)
+        
+        for row in news_rows:
+            try:
+                # Check if this article is about stock splits
+                row_text = row.get_text().lower()
+                if 'stock split' not in row_text and 'share split' not in row_text:
+                    continue
+                
+                # Look for tags to confirm it's a split article
+                tags = row.find_all('span', class_='badge')
+                is_split_article = any('stock split' in tag.get_text().lower() for tag in tags)
+                
+                if not is_split_article and 'stock split' not in row_text:
+                    continue
+                
+                # Extract ticker information
+                ticker_elements = row.find_all('span', class_='feed-ticker')
+                if not ticker_elements:
+                    ticker_divs = row.find_all('div', attrs={'name': 'tickers'})
+                    if ticker_divs:
+                        ticker_elements = ticker_divs[0].find_all('span', class_='feed-ticker')
+                
+                if not ticker_elements:
+                    continue
+                
+                # Process the first ticker only
+                ticker_element = ticker_elements[0]
+                
+                # Extract symbol
+                symbol_link = ticker_element.find('a', class_='symbol-link')
+                if not symbol_link:
+                    continue
+                
+                symbol = symbol_link.get_text().strip()
+                
+                # Get exchange
+                ticker_text = ticker_element.get_text().strip()
+                exchange = "Unknown"
+                if ":" in ticker_text:
+                    exchange = ticker_text.split(":")[-1].strip()
+                
+                # Skip OTC stocks
+                if exchange.upper() == "OTC":
+                    continue
+                
+                # Extract title and article link
+                title_element = row.find('div', attrs={'name': 'title'})
+                if not title_element:
+                    continue
+                
+                title_link = title_element.find('a', class_='feed-link')
+                if not title_link:
+                    continue
+                
+                title = title_link.get_text().strip()
+                article_link = title_link.get('href')
+                
+                # Make article link absolute
+                if article_link and not article_link.startswith('http'):
+                    article_link = urljoin(url, article_link)
+                
+                # Extract date
+                date_element = row.find('time', class_='news-row-datetime')
+                if date_element:
+                    date_span = date_element.find('span', class_='date')
+                    date_text = date_span.get_text().strip() if date_span else date_element.get_text().strip()
+                else:
+                    date_text = datetime.now().strftime('%m/%d/%Y')
+                
+                # Parse date
+                try:
+                    date_obj = datetime.strptime(date_text, '%m/%d/%Y')
+                    effective_date = date_obj.strftime('%Y-%m-%d')
+                    split_date = date_obj.date()
+                except ValueError:
+                    effective_date = datetime.now().strftime('%Y-%m-%d')
+                    split_date = datetime.now().date()
+                
+                # Determine split type and ratio from title
+                is_reverse = False
+                ratio = "Not specified"
+                title_lower = title.lower()
+                
+                if "reverse" in title_lower:
+                    is_reverse = True
+                
+                # Extract ratio using regex
+                ratio_patterns = [
+                    r'(\d+)[-\s]*for[-\s]*(\d+)',
+                    r'(\d+):(\d+)',
+                    r'(\d+)[-\s]*to[-\s]*(\d+)'
+                ]
+                
+                for pattern in ratio_patterns:
+                    match = re.search(pattern, title_lower)
+                    if match:
+                        left = int(match.group(1))
+                        right = int(match.group(2))
+                        
+                        if is_reverse or left < right:
+                            ratio = f"{left}:{right}"
+                            is_reverse = True
+                        else:
+                            ratio = f"{left}:{right}"
+                        break
+                
+                split_info = {
+                    'symbol': symbol,
+                    'ratio': ratio,
+                    'effective_date': effective_date,
+                    'fractional': 'Not specified',
+                    'is_reverse': is_reverse,
+                    'source': 'StockTitan (requests)',
+                    'exchange': exchange,
+                    'title': title,
+                    'article_link': [article_link] if article_link else []
+                }
+                
+                # Add to appropriate lists
+                if split_date >= prev_week:
+                    recent_splits.append(split_info)
+                    logging.info(f"Found recent StockTitan split: {symbol} ({exchange}) - {ratio} on {effective_date}")
+                
+                if article_link:
+                    all_splits_with_links.append(split_info)
+                
+            except Exception as e:
+                logging.error(f"Error processing StockTitan news row: {e}")
+                continue
+        
+        logging.info(f"StockTitan (requests): {len(recent_splits)} recent splits, {len(all_splits_with_links)} total with links")
+        
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Request error scraping StockTitan: {e}")
+        raise
+    except Exception as e:
+        logging.error(f"Error scraping StockTitan with requests: {e}")
+        raise
+    
+    return recent_splits, all_splits_with_links
+
+
+def scrape_stock_titan_with_fallback(max_retries=3, retry_delay=5):
+    """
+    Smart StockTitan scraper that tries requests first, falls back to Selenium if needed.
+    This provides the best performance while maintaining reliability.
+    
+    Args:
+        max_retries (int): Maximum number of retry attempts for Selenium fallback
+        retry_delay (int): Delay in seconds between retries
+    
+    Returns:
+        tuple: (recent_splits, all_splits_with_links)
+    """
+    logging.info("Starting StockTitan scraping with smart fallback strategy")
+    
+    # Try requests method first (faster)
+    try:
+        logging.info("Attempting StockTitan scraping with requests method...")
+        recent_splits, all_splits = scrape_stock_titan_requests()
+        
+        # Check if we got reasonable results
+        if recent_splits or all_splits:
+            logging.info(f"✓ StockTitan requests method successful: {len(recent_splits)} recent, {len(all_splits)} total")
+            return recent_splits, all_splits
+        else:
+            logging.warning("StockTitan requests method returned no results, falling back to Selenium")
+    
+    except Exception as e:
+        logging.warning(f"StockTitan requests method failed: {e}, falling back to Selenium")
+    
+    # Fall back to Selenium method
+    try:
+        logging.info("Falling back to StockTitan Selenium method...")
+        recent_splits, all_splits = scrape_stock_titan(max_retries, retry_delay)
+        logging.info(f"✓ StockTitan Selenium fallback successful: {len(recent_splits)} recent, {len(all_splits)} total")
+        return recent_splits, all_splits
+    
+    except Exception as e:
+        logging.error(f"StockTitan Selenium fallback also failed: {e}")
+        raise

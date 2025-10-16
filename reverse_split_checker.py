@@ -8,7 +8,7 @@ from send_discord_msg import send_discord_buy_message, send_discord_message
 from dotenv import dotenv_values
 from check_roundup import check_roundup, get_split_details, get_threshold_minimum_shares
 from send_email_msg import send_email_message
-from table_scrapers import scrape_yahoo_finance_selenium, scrape_hedge_follow, scrape_stock_titan
+from table_scrapers import scrape_yahoo_finance_selenium, scrape_hedge_follow, scrape_stock_titan_requests
 from helper_functions import next_market_day, add_current_prices, market_is_open, get_side_from_ratio
 import time as pytime
 import json
@@ -76,7 +76,7 @@ def get_reverse_splits():
         logging.error(f"HedgeFollow scraping failed after retries: {e}")
 
     try:
-        recent_splits, all_splits_with_links = run_with_retries(scrape_stock_titan, max_retries=2, delay=10)
+        recent_splits, all_splits_with_links = run_with_retries(scrape_stock_titan_requests, max_retries=2, delay=10)
     except Exception as e:
         logging.error(f"StockTitan scraping failed after retries: {e}")
         recent_splits, all_splits_with_links = [], []

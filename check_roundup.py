@@ -106,6 +106,14 @@ def check_roundup(splits):
     url_context = genai.types.Tool(url_context=genai.types.UrlContext())
 
     tools = [google_search, url_context]
+    
+    # Define fallback models to try when encountering 503 errors
+    available_models = [
+        "gemini-flash-latest",      # Primary model
+        "gemini-2.5-flash",          # Fallback 1
+        "gemini-2.5-lite",            # Fallback 2
+        "gemini-2.0-flash"                 # Fallback 3
+    ]
 
 
     for i, split in enumerate(splits):
@@ -136,8 +144,13 @@ def check_roundup(splits):
         attempt = 0
         result = "OTHER/NOT_ENOUGH_INFO"
         last_error = None
+        current_model_index = 0  # Start with the primary model
+        
         while attempt < max_attempts and result == "OTHER/NOT_ENOUGH_INFO":
             try:
+                # Select model - cycle through available models on 503 errors
+                current_model = available_models[current_model_index % len(available_models)]
+                
                 article_info = ""
                 if article_link and len(article_link) > 0:
                     logging.info(f"Found {len(article_link)} article links for {symbol}, including in prompt")
@@ -172,10 +185,10 @@ def check_roundup(splits):
                 Do not include any explanations, just respond with one of these exact phrases.
                 """
 
-                logging.info(f"Querying Gemini API for {symbol} with grounding, attempt {attempt+1} (timeout {timeout_seconds}s)")
+                logging.info(f"Querying Gemini API for {symbol} with model {current_model}, attempt {attempt+1} (timeout {timeout_seconds}s)")
                 response = _call_gemini_with_timeout(
                     client,
-                    model="gemini-flash-latest",
+                    model=current_model,
                     contents=prompt,
                     config=config,
                     timeout_seconds=timeout_seconds,
@@ -193,8 +206,17 @@ def check_roundup(splits):
                 logging.error(f"Timeout querying Gemini API for {symbol} (attempt {attempt+1}): {e}")
             except Exception as e:
                 last_error = e
+                error_str = str(e)
                 logging.error(f"Error querying Gemini API for {symbol} (attempt {attempt+1}): {e}")
-                logging.error(f"Exception details: {str(e)}")
+                logging.error(f"Exception details: {error_str}")
+                
+                # Check if this is a 503 error (model overloaded)
+                if "503" in error_str:
+                    # Switch to next model for the retry
+                    current_model_index += 1
+                    next_model = available_models[current_model_index % len(available_models)]
+                    logging.warning(f"Model {current_model} is overloaded (503), switching to {next_model} for next attempt")
+            
             attempt += 1
             if result == "OTHER/NOT_ENOUGH_INFO" and attempt < max_attempts:
                 time.sleep(2)
@@ -306,6 +328,14 @@ def get_split_details(splits):
     google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
     url_context = genai.types.Tool(url_context=genai.types.UrlContext())
     tools = [google_search, url_context]
+    
+    # Define fallback models to try when encountering 503 errors
+    available_models = [
+        "gemini-flash-latest",      # Primary model
+        "gemini-2.5-flash",          # Fallback 1
+        "gemini-2.5-lite",            # Fallback 2
+        "gemini-2.0-flash"                 # Fallback 3
+    ]
 
     results = []
     for split in splits:
@@ -323,6 +353,7 @@ def get_split_details(splits):
 
         max_attempts = 3
         attempt = 0
+        current_model_index = 0  # Start with the primary model
         extracted = {
             'symbol': symbol,
             'ratio': None,
@@ -335,6 +366,9 @@ def get_split_details(splits):
         import re, json
         while attempt < max_attempts:
             try:
+                # Select model - cycle through available models on 503 errors
+                current_model = available_models[current_model_index % len(available_models)]
+                
                 article_info = ""
                 if article_link and len(article_link) > 0:
                     if len(article_link) == 1:
@@ -371,9 +405,10 @@ def get_split_details(splits):
                     If any information is not found, use "unknown" or false for is_reverse.
                     """
 
+                logging.info(f"Querying Gemini API for {symbol} split details with model {current_model}, attempt {attempt+1}")
                 response = _call_gemini_with_timeout(
                     client,
-                    model="gemini-flash-latest",
+                    model=current_model,
                     contents=prompt,
                     config=config,
                     timeout_seconds=timeout_seconds,
@@ -462,7 +497,15 @@ def get_split_details(splits):
                 logging.info(f"Timeout occurred for {symbol}: {e}")
             except Exception as e:
                 last_error = e
+                error_str = str(e)
                 logging.info(f"Error occurred for {symbol}: {e}")
+                
+                # Check if this is a 503 error (model overloaded)
+                if "503" in error_str:
+                    # Switch to next model for the retry
+                    current_model_index += 1
+                    next_model = available_models[current_model_index % len(available_models)]
+                    logging.warning(f"Model {current_model} is overloaded (503), switching to {next_model} for next attempt")
             attempt += 1
             # If any field is still missing, try again and merge
             if attempt < max_attempts and (not extracted['ratio'] or not extracted['effective_date'] or not extracted['fractional'] or extracted['ratio'] == 'unknown' or extracted['effective_date'] == 'unknown' or extracted['fractional'] == 'unknown'):
@@ -498,6 +541,14 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
         return None, None
     timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", env.get("GEMINI_TIMEOUT_SECONDS", 45)) or 45)
 
+    # Define fallback models to try when encountering 503 errors
+    available_models = [
+        "gemini-flash-latest",      # Primary model
+        "gemini-2.5-flash",          # Fallback 1
+        "gemini-2.5-lite",            # Fallback 2
+        "gemini-2.0-flash"                 # Fallback 3
+    ]
+
     article_info = ""
     if grounding_link:
         article_info = f"\nAdditionally, please check this specific article or SEC filing: {grounding_link}"
@@ -527,13 +578,18 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
     import re, json
     max_attempts = 3
     attempt = 0
+    current_model_index = 0  # Start with the primary model
     min_shares = None
     explanation = None
     while attempt < max_attempts and (min_shares is None or explanation is None):
         try:
+            # Select model - cycle through available models on 503 errors
+            current_model = available_models[current_model_index % len(available_models)]
+            
+            logging.info(f"Querying Gemini API for {symbol} threshold with model {current_model}, attempt {attempt+1}")
             response = _call_gemini_with_timeout(
                 client,
-                model="gemini-flash-latest",
+                model=current_model,
                 contents=prompt,
                 config=config,
                 timeout_seconds=timeout_seconds,
@@ -570,7 +626,16 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
         except _GeminiTimeout as e:
             logging.error(f"Timeout querying Gemini for threshold minimum shares for {symbol}: {e}")
         except Exception as e:
+            error_str = str(e)
             logging.error(f"Error querying Gemini for threshold minimum shares for {symbol}: {e}")
+            
+            # Check if this is a 503 error (model overloaded)
+            if "503" in error_str:
+                # Switch to next model for the retry
+                current_model_index += 1
+                next_model = available_models[current_model_index % len(available_models)]
+                logging.warning(f"Model {current_model} is overloaded (503), switching to {next_model} for next attempt")
+        
         attempt += 1
         if min_shares is None or explanation is None:
             import time
