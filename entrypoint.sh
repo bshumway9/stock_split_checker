@@ -1,15 +1,18 @@
 #!/bin/bash
 
+# Ensure timezone is set properly
+export TZ=America/Denver
+
 # Start cron daemon
 service cron start
 
 # Print some useful information
 echo "Stock Split Checker Docker Container Started"
-echo "Cron jobs scheduled:"
-crontab -l
-
 echo "Current time: $(date)"
 echo "Timezone: $(cat /etc/timezone)"
+echo "TZ environment: $TZ"
+echo "Cron jobs scheduled:"
+crontab -l
 
 # Create .env file if it doesn't exist
 if [ ! -f /app/.env ]; then

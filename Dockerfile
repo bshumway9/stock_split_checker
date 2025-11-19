@@ -12,7 +12,12 @@ RUN apt-get update && apt-get install -y \
     unzip \
     cron \
     curl \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# Set timezone to Mountain Time (handles DST automatically)
+RUN ln -sf /usr/share/zoneinfo/America/Denver /etc/localtime \
+    && echo "America/Denver" > /etc/timezone
 
 # Install Chrome
 RUN wget -q -O /usr/share/keyrings/google-linux-signing-key.gpg https://dl-ssl.google.com/linux/linux_signing_key.pub \

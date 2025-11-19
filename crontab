@@ -1,12 +1,16 @@
-# Run stock split checker every weekday at 8:00 AM EST
+# Run stock split checker every weekday at 8:00 AM Mountain Time (MST/MDT)
+# Container timezone is set to America/Denver which handles daylight saving automatically
 # To change the time, modify the first two numbers:
 # Format: minute hour day_of_month month day_of_week
 # Examples:
-# 0 8 * * 1-5   = 8:00 AM weekdays (current)
-# 30 7 * * 1-5  = 7:30 AM weekdays  
-# 0 14 * * 1-5  = 8:00 AM weekdays (14:00 in 24-hour format) (THIS IS THE ONLY CORRECT LINE FOR MST)
-# 15 6 * * 1-5  = 6:15 AM weekdays
-0 14 * * 1-5 cd /app && /usr/local/bin/python reverse_split_checker.py >> /var/log/cron.log 2>&1
+# 0 8 * * 1-5   = 8:00 AM weekdays Mountain Time
+# 30 7 * * 1-5  = 7:30 AM weekdays Mountain Time
+# 15 6 * * 1-5  = 6:15 AM weekdays Mountain Time
+0 8 * * 1-5 cd /app && /usr/local/bin/python reverse_split_checker.py >> /var/log/cron.log 2>&1
+
+# Run log cleanup every Sunday at 2:00 AM to remove entries older than 30 days
+0 2 * * 0 cd /app && /usr/local/bin/python cleanup_logs.py >> /var/log/cron.log 2>&1
+@reboot sleep 30 && cd /app && /usr/local/bin/python cleanup_logs.py >> /var/log/cron.log 2>&1
 
 # Empty line required at end of crontab file
 
