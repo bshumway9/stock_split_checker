@@ -6,6 +6,7 @@ import signal
 from contextlib import contextmanager
 from google import genai
 from helper_functions import sort_key
+import re
 
 env = dotenv_values(".env")
 
@@ -33,12 +34,18 @@ def _time_limit(seconds: int):
 
 def _call_gemini_with_timeout(client: genai.Client, *, model: str, contents: str, config, timeout_seconds: int):
     """Call Gemini with a hard timeout guard to avoid indefinite hangs."""
+    # Pause between Gemini calls to avoid rate limits. Default 20s (3 calls/minute).
+    sleep_seconds = int(os.getenv("GEMINI_SLEEP_SECONDS", env.get("GEMINI_SLEEP_SECONDS", 20)) or 20)
+    logging.info(f"Sleeping {sleep_seconds}s to respect Gemini rate limit")
+    time.sleep(sleep_seconds)
     with _time_limit(timeout_seconds):
-        return client.models.generate_content(
+        response = client.models.generate_content(
             model=model,
             contents=contents,
             config=config,
         )
+
+    return response
 
 # Configure Gemini API
 def configure_gemini():
@@ -110,8 +117,11 @@ def check_roundup(splits):
     # Define fallback models to try when encountering 503 errors
     available_models = [
         "gemini-flash-latest",      # Primary model
+        "gemini-3-flash-preview",
         "gemini-2.5-flash",          # Fallback 1
-        "gemini-2.5-lite",            # Fallback 2
+        # "gemini-2.5-flash-preview-09-2025"
+        "gemini-2.5-flash-lite",            # Fallback 2
+        "gemini-3-flash",
         "gemini-2.0-flash"                 # Fallback 3
     ]
 
@@ -141,6 +151,7 @@ def check_roundup(splits):
         )
 
         max_attempts = 3
+        dynamic_max_attempts = max_attempts
         attempt = 0
         result = "OTHER/NOT_ENOUGH_INFO"
         last_error = None
@@ -196,6 +207,9 @@ def check_roundup(splits):
                 print('response: ', response)
                 # logging.info(f"Gemini API response for {symbol}: {response}")
                 result = extract_allowed_output(response, allowed_outputs)
+                # If the first attempt returns OTHER/NOT_ENOUGH_INFO, limit total tries to 2
+                if attempt == 0 and result == "OTHER/NOT_ENOUGH_INFO":
+                    dynamic_max_attempts = 2
                 if result == "":
                     logging.warning(f"No response text for {symbol} defaulting to NO_INFO, api response: {getattr(response, 'body', None)}")
                     result = "NO_INFO"
@@ -216,9 +230,23 @@ def check_roundup(splits):
                     current_model_index += 1
                     next_model = available_models[current_model_index % len(available_models)]
                     logging.warning(f"Model {current_model} is overloaded (503), switching to {next_model} for next attempt")
+                    time.sleep(2)
+                    continue  # Retry immediately with next model
+                # Check if this is a 429 (quota exhausted) error and try next model
+                elif "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    current_model_index += 1
+                    next_model = available_models[current_model_index % len(available_models)]
+                    # Try to extract suggested retry delay from the error message
+                    m = re.search(r"retry.*?(\d+\.?\d*)s", error_str, re.IGNORECASE)
+                    if m:
+                        delay = float(m.group(1))
+                        logging.info(f"Gemini returned RESOURCE_EXHAUSTED; server suggests retry in {delay}s")
+                    logging.warning(f"Model {current_model} returned RESOURCE_EXHAUSTED (429), switching to {next_model} for next attempt")
+                    time.sleep(2)
+                    continue  # Retry immediately with next model
             
             attempt += 1
-            if result == "OTHER/NOT_ENOUGH_INFO" and attempt < max_attempts:
+            if result == "OTHER/NOT_ENOUGH_INFO" and attempt < dynamic_max_attempts:
                 time.sleep(2)
             else:
                 time.sleep(1)
@@ -332,8 +360,11 @@ def get_split_details(splits):
     # Define fallback models to try when encountering 503 errors
     available_models = [
         "gemini-flash-latest",      # Primary model
+        "gemini-3-flash-preview",
         "gemini-2.5-flash",          # Fallback 1
-        "gemini-2.5-lite",            # Fallback 2
+        # "gemini-2.5-flash-preview-09-2025"
+        "gemini-2.5-flash-lite",            # Fallback 2
+        "gemini-3-flash",
         "gemini-2.0-flash"                 # Fallback 3
     ]
 
@@ -506,6 +537,15 @@ def get_split_details(splits):
                     current_model_index += 1
                     next_model = available_models[current_model_index % len(available_models)]
                     logging.warning(f"Model {current_model} is overloaded (503), switching to {next_model} for next attempt")
+                # Check if this is a 429 (quota exhausted) error and try next model
+                elif "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    current_model_index += 1
+                    next_model = available_models[current_model_index % len(available_models)]
+                    m = re.search(r"retry.*?(\d+\.?\d*)s", error_str, re.IGNORECASE)
+                    if m:
+                        delay = float(m.group(1))
+                        logging.info(f"Gemini returned RESOURCE_EXHAUSTED; server suggests retry in {delay}s")
+                    logging.warning(f"Model {current_model} returned RESOURCE_EXHAUSTED (429), switching to {next_model} for next attempt")
             attempt += 1
             # If any field is still missing, try again and merge
             if attempt < max_attempts and (not extracted['ratio'] or not extracted['effective_date'] or not extracted['fractional'] or extracted['ratio'] == 'unknown' or extracted['effective_date'] == 'unknown' or extracted['fractional'] == 'unknown'):
@@ -544,8 +584,11 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
     # Define fallback models to try when encountering 503 errors
     available_models = [
         "gemini-flash-latest",      # Primary model
+        "gemini-3-flash-preview",
         "gemini-2.5-flash",          # Fallback 1
-        "gemini-2.5-lite",            # Fallback 2
+        # "gemini-2.5-flash-preview-09-2025"
+        "gemini-2.5-flash-lite",            # Fallback 2
+        "gemini-3-flash",
         "gemini-2.0-flash"                 # Fallback 3
     ]
 
@@ -635,6 +678,15 @@ def get_threshold_minimum_shares(symbol, ratio, grounding_link=None):
                 current_model_index += 1
                 next_model = available_models[current_model_index % len(available_models)]
                 logging.warning(f"Model {current_model} is overloaded (503), switching to {next_model} for next attempt")
+            # Check if this is a 429 (quota exhausted) error and try next model
+            elif "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                current_model_index += 1
+                next_model = available_models[current_model_index % len(available_models)]
+                m = re.search(r"retry.*?(\d+\.?\d*)s", error_str, re.IGNORECASE)
+                if m:
+                    delay = float(m.group(1))
+                    logging.info(f"Gemini returned RESOURCE_EXHAUSTED; server suggests retry in {delay}s")
+                logging.warning(f"Model {current_model} returned RESOURCE_EXHAUSTED (429), switching to {next_model} for next attempt")
         
         attempt += 1
         if min_shares is None or explanation is None:

@@ -119,6 +119,7 @@ def scrape_yahoo_finance_selenium():
                     
                 except TimeoutException:
                     logging.info(f"Table container approach failed on attempt {retries + 1} for {day_str}")
+                    retries += 1
                     if retries < max_retries:
                         # Save screenshot and HTML before reloading
                         try:
@@ -147,22 +148,10 @@ def scrape_yahoo_finance_selenium():
                         logging.info(f"Reloading page and retrying (retry {retries + 1}/{max_retries}) for {day_str}")
                         driver.refresh()
                         time.sleep(3)  # Give the page time to reload
-                        retries += 1
                     else:
-                        # If we've exhausted retries, try alternative selectors
-                        logging.info(f"All retries failed for {day_str}, trying alternative selectors")
-                        try:
-                            # Try the data-test attribute
-                            table = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table[data-test='splits-table']")))
-                            logging.info(f"Yahoo Finance splits table found by data-test attribute for {day_str}")
-                        except TimeoutException:
-                            # As a last resort, try any table
-                            try:
-                                table = wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-                                logging.info(f"Found generic table on Yahoo Finance for {day_str}")
-                            except TimeoutException:
-                                logging.warning(f"No tables found on Yahoo Finance page for {day_str}")
-                                continue  # Skip to next day
+                        # If we've exhausted retries, move on
+                        logging.warning(f"Exhausted retries for table container approach on {day_str}, moving on")
+                        break
             
             if not table:
                 logging.warning(f"Could not find table for {day_str}, skipping to next day")
@@ -384,24 +373,35 @@ def scrape_hedge_follow():
         logging.info(f"Navigating to {url}")
         driver.get(url)
         
-        # Wait for the latest_splits table to load
-        wait = WebDriverWait(driver, 15)
-        
+        # Reduce explicit timeouts to avoid long hangs when ChromeDriver is slow
+        wait = WebDriverWait(driver, 10)
+
         # First wait for the table element to be present
-        table = wait.until(EC.presence_of_element_located((By.ID, "latest_splits")))
+        table_elem = wait.until(EC.presence_of_element_located((By.ID, "latest_splits")))
         logging.info("HedgeFollow table element found, waiting for data to load...")
-        
-        # Wait for table rows to be populated with data (JavaScript loading)
-        # We wait until we have at least 2 rows (header + at least 1 data row)
-        # The lambda needs to find the element fresh each time
-        wait.until(lambda d: len(d.find_element(By.ID, "latest_splits").find_elements(By.TAG_NAME, "tr")) > 1)
-        
-        # Additional wait to ensure all rows are loaded
-        time.sleep(2)
-        
-        # Capture the fully-rendered HTML
-        page_html = driver.page_source
-        logging.info("HedgeFollow page HTML captured successfully")
+
+        # Wait briefly for rows to be populated (header + at least 1 data row)
+        try:
+            wait.until(lambda d: len(d.find_element(By.ID, "latest_splits").find_elements(By.TAG_NAME, "tr")) > 1)
+        except Exception:
+            # If the rows didn't populate in time, proceed to capture whatever is available
+            logging.warning("HedgeFollow rows did not populate within wait timeout, capturing available HTML")
+
+        # Try to capture the table HTML directly from the element to avoid calling driver.page_source
+        try:
+            table_html = table_elem.get_attribute('outerHTML')
+            # Build a minimal HTML document for BeautifulSoup
+            page_html = f"<html><body>{table_html}</body></html>"
+            logging.info("HedgeFollow table HTML captured successfully from element")
+        except Exception as e:
+            logging.warning(f"Could not capture table element HTML directly: {e}, falling back to page_source")
+            try:
+                # Fallback to full page source but keep as last resort
+                page_html = driver.page_source
+                logging.info("HedgeFollow page HTML captured via page_source")
+            except Exception as e2:
+                logging.error(f"Failed to capture HedgeFollow page HTML: {e2}")
+                page_html = None
         
     except Exception as e:
         logging.error(f"Error loading HedgeFollow page with Selenium: {e}")

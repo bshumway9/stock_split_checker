@@ -69,7 +69,8 @@ def get_reverse_splits():
         logging.error(f"Yahoo Finance scraping failed after retries: {e}")
 
     try:
-        new_splits, new_past_splits = run_with_retries(scrape_hedge_follow, max_retries=2, delay=10)
+        # HedgeFollow can be slow or flaky; use fewer retries and shorter delay
+        new_splits, new_past_splits = run_with_retries(scrape_hedge_follow, max_retries=1, delay=5)
         splits.extend(new_splits)
         past_splits.extend(new_past_splits)
     except Exception as e:
